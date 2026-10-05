@@ -945,10 +945,80 @@ def cmd_testi(prj):
         ok.append((t, nome))
     capitoli = [f"{ts_yt(t)} {nome}" for t, nome in ok]
     desc = p.get("descrizione", "").replace("{CAPITOLI}", "\n".join(capitoli)).replace("{LINK}", p.get("link", ""))
-    txt = ["TITOLO", p.get("titolo", ""), "", "DESCRIZIONE", desc, "", "TAG",
-           ", ".join(p.get("tag", [])), ""]
+    tag = tag_youtube(p)
+    txt = ["TITOLO", p.get("titolo", ""), "", "DESCRIZIONE", desc, "", "TAG", ", ".join(tag), ""]
     (prj / "titolo-descrizione-tag.txt").write_text("\n".join(txt), encoding="utf-8")
     print(f"Testi pronti: {prj / 'titolo-descrizione-tag.txt'}")
+    controllo_seo(prj, p, desc, tag)
+
+
+MARCHI = ["Benessere Network", "Etna Wellness"]
+
+
+def _pulisci(t):
+    return re.sub(r"\s+", " ", re.sub(r"[#\"<>,]", " ", t)).strip(" -:|!?.").strip()
+
+
+def tag_youtube(p):
+    """Tag in ordine di forza: titolo intero, pezzi del titolo, parola chiave, correlate, ricerche reali
+    (intento di ricerca), tag del progetto, marchi in fondo. Max 500 caratteri come conta YouTube
+    (le frasi con spazi valgono 2 caratteri in piu' per le virgolette, piu' le virgole)."""
+    titolo = _pulisci(p.get("titolo", "").lower())
+    pezzi = [_pulisci(x.lower()) for x in re.split(r"[:|\-–—]", p.get("titolo", "")) if len(x.strip()) > 3]
+    candidati = [titolo] + pezzi + [p.get("keyword", "")] + p.get("keyword_correlate", []) \
+        + p.get("ricerche", []) + p.get("tag", []) + MARCHI
+    out, visti, tot = [], set(), 0
+    for t in candidati:
+        t = _pulisci(t)
+        k = t.lower()
+        if not t or k in visti or len(t) > 100:
+            continue
+        costo = len(t) + (2 if " " in t else 0) + (1 if out else 0)
+        if tot + costo > 500:
+            continue
+        out.append(t)
+        visti.add(k)
+        tot += costo
+    return out
+
+
+def controllo_seo(prj, p, desc, tag):
+    """Coerenza articolo <-> parlato <-> titolo <-> descrizione <-> tag. Scrive controllo-seo.txt."""
+    norm = lambda x: re.sub(r"\s+", " ", x.lower().replace("&", " e ")).strip()
+    kw = norm(p.get("keyword", ""))
+    parlato = norm(" ".join(f["testo"] for f in leggi_copione(prj)))
+    inizio_parlato = norm(" ".join(f["testo"] for f in leggi_copione(prj)[:3]))
+    titolo, d = norm(p.get("titolo", "")), norm(desc)
+    tagl = [norm(t) for t in tag]
+    righe, problemi = [], 0
+
+    def check(ok, testo):
+        nonlocal problemi
+        righe.append(("OK   " if ok else "MANCA") + " " + testo)
+        problemi += 0 if ok else 1
+
+    if not kw:
+        check(False, "keyword principale in progetto.json (campo \"keyword\", la stessa dell'articolo)")
+    else:
+        check(kw in titolo, f"keyword '{kw}' nel titolo")
+        check(kw in d[:200], f"keyword nelle prime 2 righe della descrizione")
+        check(kw in inizio_parlato, f"keyword detta nelle prime 3 frasi del video")
+        check(parlato.count(kw) >= 2, f"keyword detta almeno 2 volte nel video (ora {parlato.count(kw)})")
+        check(kw in tagl, "keyword tra i tag")
+        check(("#" + kw.replace(" ", "").replace("&", "")) in d, f"hashtag #{kw.replace(' ', '')} in descrizione")
+    check(norm(_pulisci(p.get("titolo", ""))) in tagl, "titolo intero tra i tag")
+    for c in p.get("keyword_correlate", []):
+        c = norm(c)
+        check(c in d or c in parlato, f"correlata '{c}' nella descrizione o nel parlato")
+    check(len(p.get("ricerche", [])) >= 3, "almeno 3 ricerche reali (\"come fare a...\", \"come risolvere...\")")
+    check(bool(p.get("link")) and p.get("link", "") in desc, "link all'articolo in descrizione")
+    tot = sum(len(t) + (2 if " " in t else 0) for t in tag) + max(0, len(tag) - 1)
+    righe.append(f"INFO  {len(tag)} tag, {tot}/500 caratteri")
+    (prj / "controllo-seo.txt").write_text("\n".join(righe) + "\n", encoding="utf-8")
+    print(f"Controllo SEO: {problemi} da sistemare (vedi controllo-seo.txt)")
+    for r in righe:
+        if r.startswith("MANCA"):
+            print("  " + r)
 
 
 # ---------------------------------------------------------------- main

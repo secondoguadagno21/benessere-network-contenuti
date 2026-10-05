@@ -26,11 +26,25 @@ Crea `Video/BenessereNetwork/progetti/AAAA-MM-GG_slug/` con:
   Chiusura: medico se il disturbo e' forte/persistente, iscrizione + campanella, domanda per i commenti.
   Query Pexels: soggetti concreti e visivi ("woman drinking water"), mai concetti astratti, mai pillole,
   alcol, marchi, schermi con testo, "subscribe" (green screen). Il filtro `VIETATE` le scarta comunque.
-- `progetto.json` - copia quello dell'ultimo progetto e adatta: `link`, `titolo` (max 100 caratteri,
+- `progetto.json` - copia quello dell'ultimo progetto e adatta: `link`, `keyword`, `keyword_correlate`, `ricerche`
+  (vedi "SEO YouTube" sotto), `titolo` (max 100 caratteri,
   una parola in MAIUSCOLO), `descrizione` con `{LINK}` e `{CAPITOLI}`, `capitoli` per sezione, `tag`,
   `parole_evidenziate` (una per frase), `miniatura_testo`, `miniatura_badge`, `finale_*`.
   Disclaimer obbligatorio in descrizione: Distributore Indipendente Etna Wellness, integratori non
   sostituiscono una dieta varia, parere medico. Mai claim salutistici oltre quelli autorizzati UE.
+
+### SEO YouTube: coerenza totale (regola di David)
+Articolo, parlato, titolo, descrizione e tag devono raccontare LA STESSA ricerca. In progetto.json:
+- `keyword`: la parola chiave principale dell'articolo (Rank Math focus keyword, la prima).
+- `keyword_correlate`: le altre 3-4 di Rank Math dell'articolo.
+- `ricerche`: 4-6 ricerche reali di chi ha il problema, con intento di ricerca: "come fare a ...",
+  "come risolvere ...", "perche' sono sempre ...", "cosa fare se ...", "... cosa fare".
+Regole: la keyword nel titolo (meglio all'inizio), nelle prime 2 righe della descrizione, DETTA nelle prime
+3 frasi del video e almeno 2 volte in tutto; le correlate dette o scritte almeno una volta; descrizione che
+riassume il video con le stesse parole del parlato; 3 hashtag (il primo = keyword). I tag li costruisce lo
+script (`tag_youtube`): titolo intero, pezzi del titolo, keyword, correlate, ricerche, tag, marchi in fondo,
+max 500 caratteri. `montaggio.py testi` scrive `controllo-seo.txt`: ogni riga MANCA va sistemata (copione o
+descrizione) PRIMA di caricare su YouTube.
 
 ## 2. Voce, visual, montaggio
 ```
