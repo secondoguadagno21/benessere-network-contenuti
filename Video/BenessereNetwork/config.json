@@ -1,0 +1,31 @@
+{
+  "voce": "Puck",
+  "voci_candidate": [
+    "Puck",
+    "Fenrir",
+    "Zephyr"
+  ],
+  "tts_model": "gemini-3.1-flash-tts-preview",
+  "tts_stile": "Leggi in italiano con voce calda, sicura ed energica, ritmo vivace ma chiaro, come un amico che ti sprona con il sorriso, mai urlato",
+  "tts_tag": "[warm, confident, energetic, upbeat]",
+  "intro": "intro.mp4",
+  "pausa_frase": 0.35,
+  "pausa_fine_sezione": 0.75,
+  "durata_gancio": 2.5,
+  "max_gancio": 3.0,
+  "durata_ideale": 4.5,
+  "max_inquadratura": 6.0,
+  "max_foto": 4.0,
+  "durata_finale": 5.0,
+  "dissolvenza": 0.4,
+  "zoom_video": 0.04,
+  "zoom_foto": 0.1,
+  "sottotitoli_size": 90,
+  "sottotitoli_margine": 85,
+  "sottotitoli_caratteri": 26,
+  "musica_volume": 0.32,
+  "lufs": -14,
+  "tts_frasi_per_richiesta": 5,
+  "tts_parole_per_richiesta": 75,
+  "musica_sovrapposizione": 4.0
+}

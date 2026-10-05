@@ -1,0 +1,10 @@
+.env
+progetti/*/lavoro/*
+!progetti/*/lavoro/voce/
+progetti/*/voci_campioni/
+progetti/*/video.mp4
+__pycache__/
+ultimo_429.json
+progetti/*/lavoro/voce/*_pad.wav
+progetti/*/lavoro/voce/lista.txt
+anteprima_*.mp4
