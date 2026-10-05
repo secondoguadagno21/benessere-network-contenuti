@@ -83,6 +83,7 @@ Poi manda all'utente un'anteprima 720p (`ffmpeg -vf scale=1280:-2 -crf 28`, file
 ```
 python3 carica_youtube.py PROGETTO --privacy public     # o private/unlisted se l'utente lo chiede
 ```
+Localita' del video SEMPRE "Italia" (regola di David): lo script la imposta da solo con la data di registrazione.
 Usa YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN dell'ambiente (scope upload+readonly), canale
 "Benessere Network Etna Wellness" (UCsLu6dLbJcKUhMYxS6RehLw). Imposta titolo, descrizione, tag, lingua,
 dichiarazione contenuto sintetico (voce IA) e miniatura; scrive `youtube.json` (evita doppioni).

@@ -64,12 +64,24 @@ def carica(prj, privacy, miniatura, pubblica_alle=None):
         utc = datetime.fromisoformat(pubblica_alle).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         meta["status"].update(privacyStatus="private", publishAt=utc)
         privacy = f"programmato {pubblica_alle}"
-    r = requests.post("https://www.googleapis.com/upload/youtube/v3/videos",
-                      params={"uploadType": "resumable", "part": "snippet,status", "notifySubscribers": "true"},
-                      headers={**h, "Content-Type": "application/json; charset=UTF-8",
-                               "X-Upload-Content-Type": "video/mp4",
-                               "X-Upload-Content-Length": str(video.stat().st_size)},
-                      json=meta, timeout=60)
+    # localita' del video sempre ITALIA (regola di David) + data di registrazione = oggi
+    from datetime import date
+    meta["recordingDetails"] = {"locationDescription": "Italia",
+                                "location": {"latitude": 41.8719, "longitude": 12.5674, "altitude": 0},
+                                "recordingDate": date.today().isoformat() + "T00:00:00Z"}
+
+    def avvia(m, parti):
+        return requests.post("https://www.googleapis.com/upload/youtube/v3/videos",
+                             params={"uploadType": "resumable", "part": parti, "notifySubscribers": "true"},
+                             headers={**h, "Content-Type": "application/json; charset=UTF-8",
+                                      "X-Upload-Content-Type": "video/mp4",
+                                      "X-Upload-Content-Length": str(video.stat().st_size)},
+                             json=m, timeout=60)
+    r = avvia(meta, "snippet,status,recordingDetails")
+    if r.status_code == 400 and "recording" in r.text.lower():
+        print("YouTube rifiuta la localita': carico senza (impostala a mano: Italia).")
+        meta.pop("recordingDetails")
+        r = avvia(meta, "snippet,status")
     if not r.ok:
         raise SystemExit(f"YouTube errore {r.status_code}: {r.text[:800]}")
     print(f"Caricamento {video.stat().st_size / 1e6:.0f} MB...")
