@@ -126,6 +126,13 @@ l'invito all'acquisto e' CATTIVO: imperativo, breve, potente, senza dare tempo d
 - Urgenza solo se VERA (promo reale sullo shop con data reale): mai scadenze, scorte limitate o sconti inventati,
   che sono pratica commerciale scorretta e mettono a rischio il sito.
 
+## Riquadri CTA (section.cta-box): SOLO 2 bottoni (regola di David)
+Ogni `<section class="cta-box">` (intermedi e finale) ha ESATTAMENTE 2 bottoni, sempre questi:
+1. `<a class="btn-wa">SCRIVIMI SU WHATSAPP ORA</a>` (api.whatsapp.com/send?phone=393534925348&text=...)
+2. `<a class="btn-cta" href="https://benesserenetwork.com/registrazione-etna-wellness/">REGISTRATI ORA</a>`
+Mai bottoni prodotto, shop o negozio dentro un cta-box: i bottoni d'acquisto stanno nella sezione prodotti,
+uno sotto ciascun prodotto. Le correzioni si fanno nel contenuto del riquadro, mai con snippet nuovi.
+
 ## Riquadri ad alto contrasto (regola di David)
 In ogni riquadro (articoli, pagine, copertine, cartelli grafici del video) il testo deve staccare nettamente:
 su sfondo scuro testo SEMPRE bianco #FFFFFF e numeri/evidenze verde chiaro #B9F5C9; su sfondo chiaro testo
