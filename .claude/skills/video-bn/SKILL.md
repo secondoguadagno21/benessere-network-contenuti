@@ -126,6 +126,12 @@ l'invito all'acquisto e' CATTIVO: imperativo, breve, potente, senza dare tempo d
 - Urgenza solo se VERA (promo reale sullo shop con data reale): mai scadenze, scorte limitate o sconti inventati,
   che sono pratica commerciale scorretta e mettono a rischio il sito.
 
+## Riquadri ad alto contrasto (regola di David)
+In ogni riquadro (articoli, pagine, copertine, cartelli grafici del video) il testo deve staccare nettamente:
+su sfondo scuro testo SEMPRE bianco #FFFFFF e numeri/evidenze verde chiaro #B9F5C9; su sfondo chiaro testo
+scuro #0f3d3e. Mai testo scuro o grigio su sfondo scuro. Sul sito c'e' lo snippet WPCode #4417 che forza il
+contrasto dei div.callout-numero gia' pubblicati; nei contenuti nuovi il colore va comunque scritto inline.
+
 ## Programmazione automatica (routine)
 Regola di David: UN GIORNO = UN CONTENUTO COMPLETO. La data di USCITA su Airtable e' il giorno in cui si
 prepara e si pubblica tutto; se qualcosa non si chiude in giornata, si pubblica il giorno dopo (mai saltare).
