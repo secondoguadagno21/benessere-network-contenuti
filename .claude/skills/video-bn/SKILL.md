@@ -22,8 +22,17 @@ Leggi l'articolo con WPvibe (`rest_api` GET `/wp/v2/posts?slug=...&context=edit`
 Crea `Video/BenessereNetwork/progetti/AAAA-MM-GG_slug/` con:
 - `copione.txt` - 2:30-3:30 min (380-480 parole), sezioni `--- GANCIO ---`, `--- MOSSA 1 ---`...,
   `--- CHIAMATA ALL'AZIONE ---`; righe `N. testo || query pexels inglese, seconda query`.
-  Tono Borzachiello: frasi brevi, metafore, calore, "tu". Gancio con domanda che fa riconoscere lo spettatore.
-  Chiusura: medico se il disturbo e' forte/persistente, iscrizione + campanella, domanda per i commenti.
+  Tono Borzachiello: frasi brevi, metafore, calore, "tu".
+- GANCIO (regola di David): il video si apre col gancio, NON col logo. L'intro col logo parte da sola
+  alla fine della sezione GANCIO, quindi il gancio deve durare 15-25 s (circa 45-65 parole, 3-5 frasi).
+  Nelle PRIME 20 PAROLE va detta la keyword principale (quella del titolo e della descrizione YouTube),
+  e nel resto del gancio almeno una correlata o una ricerca reale. Deve suonare naturale: la keyword dentro
+  una domanda o una scena in cui lo spettatore si riconosce, con l'intento di ricerca ("ti chiedi come
+  fare a...", "se cerchi come..."), mai un elenco di parole chiave. Alto impatto: domanda, scena concreta,
+  promessa del video. Es.: "Stanchezza autunnale: ti svegli e ti sembra di non aver dormito? ..."
+- CTA PARLATE (regola di David): una a meta' video, dopo la seconda o terza mossa, breve e calda
+  ("Se anche tu ..., scrivimelo nei commenti" oppure "Se ti sta servendo, iscriviti al canale"), e nella
+  chiusura: medico se il disturbo e' forte/persistente, iscrizione + campanella, domanda per i commenti.
   Query Pexels: soggetti concreti e visivi ("woman drinking water"), mai concetti astratti, mai pillole,
   alcol, marchi, schermi con testo, "subscribe" (green screen). Il filtro `VIETATE` le scarta comunque.
 - `progetto.json` - copia quello dell'ultimo progetto e adatta: `link`, `keyword`, `keyword_correlate`, `ricerche`
@@ -33,6 +42,14 @@ Crea `Video/BenessereNetwork/progetti/AAAA-MM-GG_slug/` con:
   Disclaimer obbligatorio in descrizione: Distributore Indipendente Etna Wellness, integratori non
   sostituiscono una dieta varia, parere medico. Mai claim salutistici oltre quelli autorizzati UE.
 
+### Analisi parole chiave PRIMA di tutto (regola di David)
+Il lavoro parte dalle parole chiave, non dal testo. La routine delle bozze fa l'analisi (vidIQ
+`vidiq_keyword_research` per volume e concorrenza su YouTube + ricerche reali con intento: "come fare a...",
+"come risolvere...", "perche' sono sempre...", "cosa fare se...") e la salva su Airtable (Keyword principale,
+Altre keyword, Note "ANALISI KEYWORD"). Su QUELLE parole si costruiscono, nell'ordine: articolo, riassunto,
+copione/voce (gancio compreso), titolo, descrizione e tag del video. Se il record non ha l'analisi, falla tu
+prima del copione con lo stesso metodo e scrivila nelle Note.
+
 ### SEO YouTube: coerenza totale (regola di David)
 Articolo, parlato, titolo, descrizione e tag devono raccontare LA STESSA ricerca. In progetto.json:
 - `keyword`: la parola chiave principale dell'articolo (Rank Math focus keyword, la prima).
@@ -40,7 +57,7 @@ Articolo, parlato, titolo, descrizione e tag devono raccontare LA STESSA ricerca
 - `ricerche`: 4-6 ricerche reali di chi ha il problema, con intento di ricerca: "come fare a ...",
   "come risolvere ...", "perche' sono sempre ...", "cosa fare se ...", "... cosa fare".
 Regole: la keyword nel titolo (meglio all'inizio), nelle prime 2 righe della descrizione, DETTA nelle prime
-3 frasi del video e almeno 2 volte in tutto; le correlate dette o scritte almeno una volta; descrizione che
+20 parole del gancio e almeno 2 volte in tutto; le correlate dette o scritte almeno una volta; descrizione che
 riassume il video con le stesse parole del parlato; 3 hashtag (il primo = keyword). I tag li costruisce lo
 script (`tag_youtube`): titolo intero, pezzi del titolo, keyword, correlate, ricerche, tag, marchi in fondo,
 max 500 caratteri. `montaggio.py testi` scrive `controllo-seo.txt`: ogni riga MANCA va sistemata (copione o
@@ -56,13 +73,16 @@ Le chiavi Pexels e Gemini le inietta il proxy: basta un valore segnaposto. Lanci
   Quota gratuita: 10 richieste/giorno PER MODELLO; lo script manda 5 frasi per richiesta, quindi
   un video ~7 richieste. Non sprecare richieste in prove. Se finisce la quota: commit+push di
   `lavoro/voce/` e riprendi il giorno dopo. Non mescolare mai due modelli nello stesso video.
-- Musica: brani in `musiche/` (Prime_Ascent.mp3), loop con code sovrapposte di 4 s.
+- Musica: brani in `musiche/` (Prime_Ascent.mp3), loop con code sovrapposte di 4 s. Sempre BASSA, di
+  accompagnamento (`musica_volume` 0.18 in config.json) e abbassata ancora quando parla la voce (ducking).
+- Ordine del video: GANCIO -> intro col logo (assets/intro.mp4, intoccabile) -> resto del video. Lo fa lo
+  script da solo tagliando a fine sezione GANCIO; il primo capitolo YouTube a 0:00 e' il gancio.
 - Il montaggio impiega ~10 min: usa run_in_background e aspetta la notifica (non `pgrep -f` sul
   nome dello script: trova se stesso e non finisce mai).
 
 ## 3. Controllo qualita' (obbligatorio prima di pubblicare)
 Guarda TUTTI i `lavoro/controllo/provini_*.jpg` e `report.txt`. Scarta con
-`python3 montaggio.py escludi PROGETTO vID ...` (ID in `lavoro/timeline.json`, tempo video = inizio + 7,4 s di intro)
+`python3 montaggio.py escludi PROGETTO vID ...` (ID in `lavoro/timeline.json`; tempo video = inizio per il gancio, inizio + 7,4 s di intro dopo il gancio)
 ogni clip con: alcol, pillole/blister/farmaci, marchi o scritte leggibili, green screen, soggetti fuori tema.
 Se le sostitute sono ancora sbagliate, cambia le query della frase nel copione e rilancia `escludi`.
 Poi manda all'utente un'anteprima 720p (`ffmpeg -vf scale=1280:-2 -crf 28`, file `anteprima_*.mp4`, ignorato da git).

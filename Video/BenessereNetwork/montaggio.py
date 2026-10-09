@@ -806,18 +806,26 @@ def cmd_monta(prj):
     contenuto = lavoro(prj) / "contenuto.mp4"
     ff("-i", contenuto_v, "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
        "-b:a", "192k", "-ar", "48000", "-shortest", contenuto)
-    # 5) intro intoccabile + contenuto
+    # 5) gancio + intro intoccabile + resto (regola di David: il logo arriva DOPO il gancio, verso i 20 s)
     intro = ASSETS / c["intro"]
     out = prj / "video.mp4"
+    prima = frasi[0]["sezione"]
+    t_gancio = next((f["inizio"] for f in frasi if f["sezione"] != prima), 0.0)
     if intro.exists():
-        print("  intro + contenuto...")
+        print(f"  gancio ({t_gancio:.1f} s) + intro + contenuto...")
         ha_audio = bool(run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
                              "stream=index", "-of", "csv=p=0", intro]).stdout.strip())
         ia = "[0:a]" if ha_audio else "[ia]"
         pre = "" if ha_audio else f"anullsrc=r=48000:cl=stereo,atrim=0:{durata(intro):.3f}[ia];"
+        sf = 0.3  # sfumatura della musica sul taglio (la voce e' gia' in pausa a fine sezione)
         fcx = (pre + f"[0:v]scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,"
                f"fps={FPS},setsar=1,format=yuv420p[iv];{ia}aresample=48000,aformat=channel_layouts=stereo[ia2];"
-               f"[1:a]aformat=channel_layouts=stereo[ca];[iv][ia2][1:v][ca]concat=n=2:v=1:a=1[v][a]")
+               f"[1:v]split=2[c1][c2];[1:a]aformat=channel_layouts=stereo,asplit=2[d1][d2];"
+               f"[c1]trim=0:{t_gancio:.3f},setpts=PTS-STARTPTS[gv];"
+               f"[d1]atrim=0:{t_gancio:.3f},asetpts=PTS-STARTPTS,afade=t=out:st={t_gancio - sf:.3f}:d={sf}[ga];"
+               f"[c2]trim=start={t_gancio:.3f},setpts=PTS-STARTPTS[rv];"
+               f"[d2]atrim=start={t_gancio:.3f},asetpts=PTS-STARTPTS,afade=t=in:d={sf}[ra];"
+               f"[gv][ga][iv][ia2][rv][ra]concat=n=3:v=1:a=1[v][a]")
         ff("-i", intro, "-i", contenuto, "-filter_complex", fcx, "-map", "[v]", "-map", "[a]",
            "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-maxrate", "12M", "-bufsize", "24M",
            "-profile:v", "high", "-pix_fmt", "yuv420p",
@@ -827,10 +835,10 @@ def cmd_monta(prj):
         print(f"  ATTENZIONE: {intro.name} non trovata in assets/, video senza intro.")
         ff("-i", contenuto, "-c", "copy", "-movflags", "+faststart", out)
         durata_intro = 0.0
-    info = {"durata_intro": durata_intro, "durata_totale": durata(out),
+    info = {"durata_intro": durata_intro, "inizio_intro": t_gancio, "durata_totale": durata(out),
             "sezioni": {}}
     for f in frasi:
-        info["sezioni"].setdefault(f["sezione"], durata_intro + f["inizio"])
+        info["sezioni"].setdefault(f["sezione"], 0.0 if f["sezione"] == prima else durata_intro + f["inizio"])
     (lavoro(prj) / "info.json").write_text(json.dumps(info, indent=1, ensure_ascii=False))
     print(f"Video pronto: {out}  ({info['durata_totale']:.1f} s)")
 
@@ -931,11 +939,10 @@ def cmd_testi(prj):
     p = progetto(prj)
     info = json.loads((lavoro(prj) / "info.json").read_text())
     nomi = p.get("capitoli", {})
-    cap = [(0.0, p.get("capitolo_intro", "Intro"))]
-    cap += [(t, nomi.get(sez, sez.title())) for sez, t in info["sezioni"].items()]
-    # YouTube: primo capitolo a 0:00 e ogni capitolo di almeno 10 secondi
-    if info["durata_intro"] < 10:
-        cap = [(0.0, cap[1][1])] + cap[2:]
+    # il video si apre col gancio (l'intro col logo viene dopo): primo capitolo = gancio a 0:00
+    cap = [(t, nomi.get(sez, sez.title())) for sez, t in info["sezioni"].items()]
+    cap[0] = (0.0, cap[0][1])
+    # YouTube: ogni capitolo di almeno 10 secondi
     fine = info["durata_totale"]
     ok = []
     for i, (t, nome) in enumerate(cap):
@@ -987,7 +994,13 @@ def controllo_seo(prj, p, desc, tag):
     norm = lambda x: re.sub(r"\s+", " ", x.lower().replace("&", " e ")).strip()
     kw = norm(p.get("keyword", ""))
     parlato = norm(" ".join(f["testo"] for f in leggi_copione(prj)))
-    inizio_parlato = norm(" ".join(f["testo"] for f in leggi_copione(prj)[:3]))
+    frasi = leggi_copione(prj)
+    gancio = [f for f in frasi if f["sezione"] == frasi[0]["sezione"]]
+    parole = lambda x: re.sub(r"[^\w&' ]", " ", x).split()
+    testo_gancio = " ".join(parole(norm(" ".join(f["testo"] for f in gancio))))
+    prime_parole = " ".join(parole(norm(" ".join(f["testo"] for f in frasi)))[:20 + len(kw.split())])
+    ultima = frasi[-1]["sezione"]
+    corpo = norm(" ".join(f["testo"] for f in frasi if f["sezione"] not in (frasi[0]["sezione"], ultima)))
     titolo, d = norm(p.get("titolo", "")), norm(desc)
     tagl = [norm(t) for t in tag]
     righe, problemi = [], 0
@@ -1002,7 +1015,7 @@ def controllo_seo(prj, p, desc, tag):
     else:
         check(kw in titolo, f"keyword '{kw}' nel titolo")
         check(kw in d[:200], f"keyword nelle prime 2 righe della descrizione")
-        check(kw in inizio_parlato, f"keyword detta nelle prime 3 frasi del video")
+        check(kw in prime_parole, f"keyword detta nelle prime 20 parole del gancio")
         check(parlato.count(kw) >= 2, f"keyword detta almeno 2 volte nel video (ora {parlato.count(kw)})")
         check(kw in tagl, "keyword tra i tag")
         check(("#" + kw.replace(" ", "").replace("&", "")) in d, f"hashtag #{kw.replace(' ', '')} in descrizione")
@@ -1010,6 +1023,16 @@ def controllo_seo(prj, p, desc, tag):
     for c in p.get("keyword_correlate", []):
         c = norm(c)
         check(c in d or c in parlato, f"correlata '{c}' nella descrizione o nel parlato")
+    altre = [norm(x) for x in p.get("keyword_correlate", []) + p.get("ricerche", [])]
+    check(any(x in testo_gancio for x in altre), "almeno una correlata o ricerca detta nel gancio")
+    info = lavoro(prj) / "info.json"
+    if info.exists():
+        tg = json.loads(info.read_text()).get("inizio_intro", 0)
+        check(12 <= tg <= 28, f"gancio di 15-25 s prima dell'intro col logo (ora {tg:.1f} s)")
+    check(bool(re.search(r"comment|scrivimi qui sotto|scrivilo qui sotto", corpo))
+          or bool(re.search(r"iscriv", corpo)), "CTA parlata a meta' video (commenta se anche tu... / iscriviti)")
+    check("iscriv" in parlato, "invito a iscriversi al canale detto nel video")
+    check("comment" in parlato, "invito a commentare detto nel video")
     check(len(p.get("ricerche", [])) >= 3, "almeno 3 ricerche reali (\"come fare a...\", \"come risolvere...\")")
     check(bool(p.get("link")) and p.get("link", "") in desc, "link all'articolo in descrizione")
     tot = sum(len(t) + (2 if " " in t else 0) for t in tag) + max(0, len(tag) - 1)
