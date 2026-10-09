@@ -107,7 +107,7 @@ Localita' del video SEMPRE "Italia" (regola di David): lo script la imposta da s
 Usa YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN dell'ambiente (scope upload+readonly), canale
 "Benessere Network Etna Wellness" (UCsLu6dLbJcKUhMYxS6RehLw). Imposta titolo, descrizione, tag, lingua,
 dichiarazione contenuto sintetico (voce IA) e miniatura; scrive `youtube.json` (evita doppioni).
-Chiedi conferma della visibilita' prima di caricare. Lo scope non permette di commentare:
+Visibilita': SEMPRE pubblico subito (regola di David). Se lo scope non permette di commentare:
 dai all'utente il testo del commento da fissare (domanda + link articolo, tono caldo).
 
 ## 6. Articolo
@@ -166,25 +166,25 @@ Obiettivo 4 contenuti a settimana, uscite distanziate (es. lun/mer/ven/dom), dec
 Coda Airtable: base appK0PxNveZobZxg9, tabella tblU2fUE8DX2sFSKu. Campi: Argomento fld908dlLxT1DKHtT,
 Prodotto fldM0Ao2sYwTz9h7q, Stato fldWxhNd7cSoGgrcM, Link bozza fld86NmYtwE4yS0N9, Note fld0K4E2gXJK5ufeh
 (inizia con "USCITA gg/mm/aaaa"). Ora Europe/Rome.
-- 06:47 routine "Bozze articoli": bozza dell'articolo con USCITA = oggi (o scaduta) -> Stato "Bozza pronta".
-- 09:17 routine VIDEO: record "Bozza pronta" con USCITA = oggi o scaduta (o "Video in lavorazione" da riprendere).
+- 05:47 routine "Bozze articoli": analisi keyword + bozza dell'articolo con USCITA = oggi (o scaduta) -> "Bozza pronta".
+- 07:47 routine VIDEO: record "Bozza pronta" con USCITA = oggi o scaduta (o "Video in lavorazione" da riprendere).
   Stato "Video in lavorazione" (typecast). Riassunto dell'articolo = copione, passi 2-5 con
-  `carica_youtube.py PROGETTO --pubblica-alle OGGIT17:55:00+02:00` (se finisce dopo le 17:15, domani 17:55;
-  +02:00 ora legale, +01:00 solare). Note: "VIDEO gg/mm: youtube ID, pubblico alle ..., miniatura attachment ID +
-  URL wp-content, ramo git". Stato "Video pronto". MAIL a secondoguadagno21@gmail.com (Gmail) oggetto
-  "✅ Contenuto pronto: TITOLO" con link YouTube, bozza articolo, miniatura, orario di uscita, cose da controllare.
-  Il processo NON aspetta risposte: la mail e' un avviso.
-- 17:41 routine PUBBLICAZIONE: record "Video pronto" il cui video esce entro oggi alle 17:55 (anche di giorni
-  precedenti), oppure "Bozza pronta" con USCITA scaduta da almeno 1 giorno (pubblica senza video).
-  Articolo: video al ~20% del testo (dopo il riquadro "In breve", passo 6, POST completo), immagine in
-  evidenza = miniatura, status publish. YouTube: primo commento con link all'articolo (serve lo scope
-  youtube.force-ssl; senza, metti il testo nella mail). Facebook alle 18:00 (passo 7: immagine, link articolo
-  nel testo, link video nel primo commento). Stato "Pubblicato", Note con i link, MAIL "🚀 Pubblicato: TITOLO".
+  `carica_youtube.py PROGETTO --privacy public`: regola di David, il video va PUBBLICO SUBITO, mai privato o
+  programmato. Miniatura: la versione FINALE (identica a YouTube) va su WordPress e il suo attachment nelle Note.
+  Note: "VIDEO gg/mm: youtube ID (pubblico), miniatura attachment ID + URL wp-content". Stato "Video pronto".
+  MAIL a secondoguadagno21@gmail.com (Gmail) oggetto "✅ Video online: TITOLO" con link YouTube, bozza articolo,
+  miniatura, keyword e prime 20 parole del gancio, cose da controllare. Il processo NON aspetta risposte.
+- 12:41 routine PUBBLICAZIONE: record "Video pronto" (anche di giorni precedenti), oppure "Bozza pronta" con
+  USCITA scaduta da almeno 1 giorno (pubblica senza video). Articolo alle 13:00: video al ~20% del testo (dopo il
+  riquadro "In breve", passo 6, POST completo), immagine in evidenza = miniatura, status publish. YouTube: primo
+  commento con link all'articolo (senza scope youtube.force-ssl o senza repo, testo nella mail). Facebook alle
+  13:00 (passo 7: immagine, link articolo nel testo, link video nel primo commento). Stato "Pubblicato", Note con
+  i link, MAIL "🚀 Pubblicato: TITOLO".
 
 ## Repository e pulizia
 Repository dedicato: secondoguadagno21/benessere-network-contenuti, ramo `main` (ogni routine lavora sul
 proprio ramo e pubblica su main a fine giornata). `lavoro/voce/` si versiona SOLO finche' il contenuto non e'
-pubblicato (serve a riprendere il giorno dopo); quando il record diventa "Pubblicato", la routine delle 18:00
+pubblicato (serve a riprendere il giorno dopo); quando il record diventa "Pubblicato", la routine di pubblicazione delle 13:00
 fa `git rm -r --cached` + cancella `progetti/<progetto>/lavoro/voce` e committa: restano copione, progetto.json,
 miniatura, youtube.json, testi e crediti. Cosi' il repository resta leggero anche con 4 video a settimana.
 
