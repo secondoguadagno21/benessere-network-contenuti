@@ -73,10 +73,6 @@
     "file": "immagini/glypoint.jpg",
     "inquadrature": [
       [
-        14,
-        -1
-      ],
-      [
         18,
         -1
       ]
@@ -96,5 +92,26 @@
   ],
   "pause_extra": {
     "15": 2.0
+  },
+  "sottotitoli_srt": "sottotitoli.srt",
+  "video_prodotto": {
+    "file": "immagini/glypoint_produzione.mp4",
+    "inquadrature": [
+      [
+        14,
+        -1,
+        0.0
+      ],
+      [
+        16,
+        -1,
+        1.4
+      ],
+      [
+        22,
+        -1,
+        11.6
+      ]
+    ]
   }
 }

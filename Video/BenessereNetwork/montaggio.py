@@ -605,7 +605,7 @@ def cmd_visual(prj):
                                  "autore": "Immagine generata con IA (Canva)", "autore_url": "", "pagina": ""})
                 t += L
                 continue
-            prod = scena_prodotto(prj, f["n"], j, len(pezzi))
+            prod = scena_video_prodotto(prj, f["n"], j, len(pezzi)) or scena_prodotto(prj, f["n"], j, len(pezzi))
             if prod:
                 timeline.append({**prod, "frase": f["n"], "inizio": round(t, 3), "durata": round(L, 3),
                                  "parola": sg.get("parola")})
@@ -639,7 +639,7 @@ def cmd_visual(prj):
                              "parola": sg.get("parola")})
             t += L
     for i, s in enumerate(timeline):
-        if s["tipo"] not in ("prodotto", "cartello") and not s.get("ia"):
+        if s["tipo"] not in ("prodotto", "cartello", "video_locale") and not s.get("ia"):
             s["file"] = str(scarica(prj, s).relative_to(prj))
         print(f"  [{i + 1}/{len(timeline)}] frase {s['frase']}: {s['tipo']} {s['id']} "
               f"{s['durata']:.1f}s  '{s['query']}'")
@@ -651,7 +651,7 @@ def cmd_visual(prj):
 def scrivi_crediti(prj, timeline):
     righe = ["CREDITI - immagini e video da Pexels (licenza Pexels, uso gratuito)", ""]
     for s in timeline:
-        if s["tipo"] in ("prodotto", "cartello"):
+        if s["tipo"] in ("prodotto", "cartello", "video_locale"):
             continue
         if s.get("ia"):
             righe.append(f"Frase {s['frase']:>2} | IA    | immagine generata con intelligenza artificiale (Canva)")
@@ -678,6 +678,22 @@ def scena_prodotto(prj, n, j, tot):
                 raise SystemExit(f"Manca l'immagine del prodotto: {prj / p['file']}")
             return {"id": f"prodotto_{n}_{j}", "tipo": "prodotto", "file": p["file"], "query": "prodotto",
                     "movimento": ["zoom", "scorrimento", "zoom_out"][k % 3]}
+    return None
+
+
+def scena_video_prodotto(prj, n, j, tot):
+    """Spezzone di un video del prodotto (es. il "dietro le quinte" verticale da TikTok) al posto della clip:
+    progetto.json -> "video_prodotto": {"file": "immagini/x.mp4", "inquadrature": [[14, -1, 0.0], [16, -1, 1.4]]}
+    (frase, indice dell'inquadratura con -1 = l'ultima, secondo di partenza nel video)."""
+    p = progetto(prj).get("video_prodotto")
+    if not p:
+        return None
+    for fn, idx, da in p["inquadrature"]:
+        if fn == n and (idx % tot) == j:
+            if not (prj / p["file"]).exists():
+                raise SystemExit(f"Manca il video del prodotto: {prj / p['file']}")
+            return {"id": f"videoprodotto_{n}_{j}", "tipo": "video_locale", "file": p["file"], "da": da,
+                    "query": "video prodotto"}
     return None
 
 
@@ -750,6 +766,13 @@ def render_inquadratura(prj, s, idx, durata_out):
               f"force_original_aspect_ratio=increase,crop={int(W * 1.25)}:{int(H * 1.25)},{zp},setsar=1")
         ff("-ss", f"{start:.2f}", "-t", f"{serve + 0.1:.2f}", "-i", src, "-vf", vf,
            "-frames:v", n, *enc, out)
+    elif s["tipo"] == "video_locale":
+        fc = (f"[0:v]fps={FPS},tpad=stop_mode=clone:stop_duration=3,split[a][b];"
+              f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=40:2,"
+              f"eq=brightness=-0.22:saturation=0.8[bg];"
+              f"[b]scale={W}:{H}:force_original_aspect_ratio=decrease[fg];"
+              f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v]")
+        ff("-ss", f"{s['da']:.2f}", "-i", src, "-filter_complex", fc, "-map", "[v]", "-frames:v", n, *enc, out)
     elif s["tipo"] == "prodotto":
         # movimento lento e morbido (ease in-out) sul prodotto: avvicinamento, scorrimento o allontanamento
         tela = tela_prodotto(src, lavoro(prj, "media") / f"{s['id']}_tela.jpg")
@@ -1039,6 +1062,28 @@ def eventi_mix(prj, totale):
     return stili, ev, cartelli
 
 
+def leggi_srt(prj, path):
+    """SRT con i tempi del video FINALE (gancio + intro + resto) -> blocchi sui tempi del contenuto senza intro.
+    Usa lavoro/info.json del montaggio precedente (inizio e durata dell'intro)."""
+    info = json.loads((lavoro(prj) / "info.json").read_text())
+    gi, di = info["inizio_intro"], info["durata_intro"]
+    sec = lambda x: (lambda h, m, rest: int(h) * 3600 + int(m) * 60 + float(rest.replace(",", ".")))(*x.split(":"))
+    blocchi = []
+    for blocco in re.split(r"\n\s*\n", path.read_text(encoding="utf-8").strip()):
+        righe = blocco.strip().splitlines()
+        m = next((re.match(r"(\S+)\s*-->\s*(\S+)", r) for r in righe if "-->" in r), None)
+        if not m:
+            continue
+        testo = " ".join(r for r in righe[righe.index(m.group(0)) + 1:] if r.strip())
+        a, b = sec(m.group(1)), sec(m.group(2))
+        if a >= gi + di - 0.05:
+            a, b = a - di, b - di
+        elif a >= gi:   # dentro l'intro col logo: nessun sottotitolo
+            continue
+        blocchi.append((a, b, testo))
+    return blocchi
+
+
 def scrivi_ass(prj, frasi, totale):
     c, p = cfgp(prj), progetto(prj)
     override = p.get("parole_evidenziate", {})
@@ -1062,7 +1107,21 @@ Style: Sezione,Poppins,44,{hexass(BIANCO)},{hexass(BIANCO)},{hexass(ACCENTO if s
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     ev = list(ev_mix)
-    for f in frasi:
+    srt = p.get("sottotitoli_srt")
+    if srt:   # sottotitoli dai tempi reali della voce (SRT sul video finale): niente stime
+        frasi_srt = frasi
+        frasi = []
+        for inizio, fine, testo in leggi_srt(prj, prj / srt):
+            fr = next((f for f in frasi_srt if f["inizio"] <= (inizio + fine) / 2 < f["inizio"] + f["scena"]),
+                      frasi_srt[-1])
+            kw = parola_chiave(fr, override)
+            if not coperto((inizio + fine) / 2):
+                pop = r"{\fscx92\fscy92\t(0,110,\fscx100\fscy100)}"
+                b = ass_testo(testo)
+                ev.append(f"Dialogue: 1,{ts_ass(inizio)},{ts_ass(fine)},Sub,,0,0,0,,{pop}"
+                          f"{evidenzia(b, kw, ACCENTO, True) if stili_mix else evidenzia(b, kw)}")
+        frasi = frasi_srt
+    for f in ([] if srt else frasi):
         kw = parola_chiave(f, override)
         bl = blocchi(f["testo"], c["sottotitoli_caratteri"])
         tot = sum(len(b) for b in bl)
