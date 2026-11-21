@@ -36,12 +36,7 @@
   copertina come immagine in evidenza, post Facebook (Metricool) CON IMMAGINE (la miniatura), link articolo
   nel testo e "Guarda il video" + link YouTube nel primo commento. Catena completa: skill `.claude/skills/video-bn`
 
-## Prossimo passo: stacchi grafici (motion graphic)
-1. Cartelli di sezione: a ogni "MOSSA N" schermo a tinta unita (verde #34925a o nero), "MOSSA 2" gigante
-   bianco che entra con animazione, sotto il titolo della mossa; 2-2,5 s, con la voce che continua sotto
-2. Stacchi ogni 10-15 s sul concetto chiave della frase: fondo pieno o B-roll sfocato/scurito, con
-   - frase o parola gigante (es. "10 MINUTI DI LUCE")
-   - numero grande con contatore animato (es. "25 OTTOBRE", "-25 EURO")
-   - riquadri ed elenchi che compaiono uno alla volta (es. aloe / enzimi / tisana / minerali)
-   - grafici semplici (barre, ciclo energia della giornata)
-3. Indicazione nel copione: `[CARTELLO ...]` o `[ELENCO ...]` accanto alla frase; lo script genera la grafica
+## Stacchi grafici (motion graphic): fatti nello stile MIX
+Cartelli di capitolo, titoli e parole giganti, contatori, elenchi che si spuntano, scritte barrate, immagini IA
+ed effetti sonori sono nello stile MIX (`"stile": "mix"` in progetto.json): vedi `STILE-MIX.md`.
+Ancora da fare: grafici semplici (barre, ciclo energia della giornata).

@@ -8,6 +8,13 @@ Uso (dalla cartella Video/BenessereNetwork):
   python montaggio.py tutto PROGETTO          -> voce + visual + montaggio + controllo + miniatura + testi
   python montaggio.py voce|visual|monta|controllo|miniatura|testi PROGETTO   -> singoli passaggi
   python montaggio.py escludi PROGETTO ID [ID...]  -> scarta clip/foto Pexels e rifai visual+monta
+  python montaggio.py ia PROGETTO             -> stile mix: elenco delle immagini IA da generare (immagini/ia_N.jpg)
+
+Stile "mix" ("stile": "mix" in progetto.json): clip, foto, immagini IA e cartelli animati con effetti sonori.
+Nel copione, dopo le parole chiave Pexels, ogni frase puo' avere grafiche separate da "||":
+  IA: descrizione dell'immagine | TITOLO: testo gigante | NUMERO: +200 | didascalia
+  ELENCO: titolo | voce 1; voce 2; voce 3 | BARRATO: frase negata | frase vera | PAROLA: parola gigante
+Ogni sezione dopo il gancio (tranne la chiamata finale) si apre con il cartello del capitolo.
 
 PROGETTO e' una cartella in progetti/ con dentro copione.txt e progetto.json.
 Ogni passaggio usa la cache in PROGETTO/lavoro/: rilanciare e' sicuro e veloce.
@@ -97,8 +104,11 @@ def leggi_copione(prj):
             continue
         m = re.match(r"^(\d+)\.\s*(.+?)\s*\|\|\s*(.+)$", line.strip())
         if m:
+            # dopo il testo: "query pexels, ... || GRAFICA: ... || GRAFICA: ..." (le grafiche valgono nello stile mix)
+            campi = [x.strip() for x in m.group(3).split("||")]
             frasi.append({"n": int(m.group(1)), "testo": m.group(2).strip(),
-                          "query": [q.strip() for q in m.group(3).split(",") if q.strip()],
+                          "query": [q.strip() for q in campi[0].split(",") if q.strip()],
+                          "grafiche": [g for g in (leggi_grafica(x) for x in campi[1:]) if g],
                           "sezione": sezione})
     if not frasi:
         raise SystemExit("copione.txt: nessuna frase nel formato 'N. testo || parole chiave'.")
@@ -107,9 +117,34 @@ def leggi_copione(prj):
     return frasi
 
 
+TIPI_GRAFICA = ("IA", "TITOLO", "NUMERO", "ELENCO", "BARRATO", "PAROLA")
+CARTELLI = ("TITOLO", "NUMERO", "ELENCO", "BARRATO")   # grafiche a tutto schermo; IA e PAROLA no
+
+
+def leggi_grafica(campo):
+    """'TITOLO: LA LUCE E' IL TUO CAFFE'' -> {"tipo": "TITOLO", "testo": "..."} (anche tra [ ])."""
+    m = re.match(r"^\[?\s*([A-Za-z]+)\s*:\s*(.+?)\s*\]?$", campo)
+    if not m or m.group(1).upper() not in TIPI_GRAFICA:
+        return None
+    return {"tipo": m.group(1).upper(), "testo": m.group(2).strip()}
+
+
 def progetto(prj):
     p = prj / "progetto.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def mix_attivo(prj):
+    """Stile "mix" (clip + foto + immagini IA + cartelli animati): "stile": "mix" in progetto.json."""
+    return progetto(prj).get("stile") == "mix"
+
+
+def cfgp(prj):
+    """config.json con le regole dello stile del progetto (blocco "mix" sopra le regole base)."""
+    c = cfg()
+    if mix_attivo(prj):
+        c.update(c.get("mix", {}))
+    return c
 
 
 def lavoro(prj, *sub):
@@ -445,18 +480,130 @@ def scarica(prj, a):
     return out
 
 
+# ---------------------------------------------------------------- stile mix: piano delle scene
+
+def immagine_ia(prj, n):
+    """Immagine IA della frase n (generata con Canva e salvata dalla sessione): immagini/ia_N.jpg|png|webp."""
+    for ext in ("jpg", "jpeg", "png", "webp"):
+        p = prj / "immagini" / f"ia_{n}.{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+def capitoli_mix(frasi, p):
+    """Sezioni che si aprono con il cartello di capitolo (tutte tranne il gancio e la chiamata finale).
+    -> {sezione: {"numero": "01", "etichetta": "MOSSA 01", "titolo": "LA LUCE DEL MATTINO"}}"""
+    titoli = p.get("capitoli", {})
+    out, k = {}, 0
+    for f in frasi:
+        s = f["sezione"]
+        if s in out or s == frasi[0]["sezione"] or re.search(r"CHIAMATA|FINALE|CONCLUSIONE|CTA", s, re.I):
+            continue
+        k += 1
+        m = re.match(r"^\s*([A-Za-zÀ-ú' ]+?)\s*(\d+)\s*$", s)
+        parola, num = (m.group(1).upper(), int(m.group(2))) if m else ("PARTE", k)
+        titolo = re.sub(r"^\s*[A-Za-zÀ-ú]+\s*\d+\s*[:\-–]\s*", "", titoli.get(s, s)).strip()
+        out[s] = {"numero": f"{num:02d}", "etichetta": f"{parola} {num:02d}", "titolo": titolo.upper()}
+    return out
+
+
+def dividi(L, gancio, c):
+    """Divide L secondi di immagini in inquadrature uguali (2-3 s nel gancio, 3-5 s poi, mai oltre il massimo)."""
+    ideale = c["durata_gancio"] if gancio else c["durata_ideale"]
+    massimo = c["max_gancio"] if gancio else c["max_inquadratura"]
+    n = max(1, math.ceil(L / ideale - 0.15))
+    while L / n > massimo:
+        n += 1
+    return [L / n] * n
+
+
+def piano_mix(prj, f, gancio, capitolo, c):
+    """Segmenti di una frase nello stile mix: prima i cartelli (capitolo, titolo, numero, elenco, barrato),
+    poi le immagini. La prima immagine e' l'immagine IA della frase, se c'e'; la PAROLA gigante va sopra."""
+    L = f["scena"]
+    graf = {g["tipo"]: g for g in f.get("grafiche", [])}
+    cart = []
+    if capitolo:
+        cart.append({"tipo": "CAPITOLO", **capitolo, "durata": c["durata_capitolo"]})
+    for tipo in ("TITOLO", "NUMERO", "BARRATO", "ELENCO"):
+        if tipo in graf:
+            d = c["durata_cartello"]
+            if tipo == "ELENCO":   # l'elenco resta finche' la voce lo legge tutto
+                d = max(3.5, min(c["max_elenco"], L - sum(x["durata"] for x in cart)))
+            cart.append({**graf[tipo], "durata": d})
+    tot = sum(x["durata"] for x in cart)
+    # l'immagine IA (o la parola gigante) deve restare visibile: le tengo almeno 1,8 s se la frase lo permette
+    serve = 1.8 if cart and ("IA" in graf or "PAROLA" in graf) and L - 1.8 >= 1.6 * len(cart) else 0.0
+    if tot > L - serve:   # frase corta: i cartelli si dividono il tempo che resta
+        for x in cart:
+            x["durata"] = (L - serve) * x["durata"] / tot
+        tot = L - serve
+    resto = L - tot
+    if cart and 0 < resto < 1.6:   # avanzo troppo corto per un'immagine: lo prende l'ultimo cartello
+        cart[-1]["durata"] += resto
+        resto = 0
+    seg = [{"durata": x.pop("durata"), "cartello": x} for x in cart]
+    if resto > 0:
+        ia = immagine_ia(prj, f["n"]) if "IA" in graf else None
+        if "IA" in graf and not ia:
+            print(f"  ATTENZIONE frase {f['n']}: manca immagini/ia_{f['n']}.jpg, uso Pexels.")
+        for j, d in enumerate(dividi(resto, gancio, c)):
+            seg.append({"durata": d, "ia": ia if j == 0 else None,
+                        "parola": graf["PAROLA"]["testo"] if j == 0 and "PAROLA" in graf else None})
+    return seg
+
+
+def cmd_ia(prj):
+    """Elenco delle immagini IA richieste dal copione (riga "|| IA: descrizione"): la sessione le genera con
+    Canva e le salva come immagini/ia_N.jpg (1920x1080) prima di lanciare visual/tutto."""
+    voci = []
+    for f in leggi_copione(prj):
+        for g in f.get("grafiche", []):
+            if g["tipo"] == "IA":
+                ia = immagine_ia(prj, f["n"])
+                voci.append({"frase": f["n"], "file": str(ia.relative_to(prj)) if ia else f"immagini/ia_{f['n']}.jpg",
+                             "presente": bool(ia), "descrizione": g["testo"]})
+    print(json.dumps(voci, ensure_ascii=False, indent=1))
+    mancano = sum(1 for v in voci if not v["presente"])
+    print(f"Immagini IA: {len(voci)} richieste, {mancano} da generare.")
+
+
 def cmd_visual(prj):
     frasi = frasi_con_tempi(prj)
     esclusi = set(json.loads((lavoro(prj) / "esclusi.json").read_text())) \
         if (lavoro(prj) / "esclusi.json").exists() else set()
     prima_sezione = frasi[0]["sezione"]
-    c = cfg()
+    c = cfgp(prj)
+    mix = mix_attivo(prj)
+    capitoli = capitoli_mix(frasi, progetto(prj)) if mix else {}
+    aperti = set()
     usati, timeline = set(), []
     for f in frasi:
         gancio = f["sezione"] == prima_sezione
-        pezzi = piano_inquadrature(f, gancio)
+        if mix:
+            cap = capitoli.get(f["sezione"]) if f["sezione"] not in aperti else None
+            aperti.add(f["sezione"])
+            segmenti = piano_mix(prj, f, gancio, cap, c)
+        else:
+            segmenti = [{"durata": L} for L in piano_inquadrature(f, gancio)]
+        pezzi = [s["durata"] for s in segmenti]
         t = f["inizio"]
         for j, L in enumerate(pezzi):
+            sg = segmenti[j]
+            if sg.get("cartello"):
+                g = sg["cartello"]
+                timeline.append({"id": f"c{f['n']}_{j}", "tipo": "cartello", "grafica": g, "frase": f["n"],
+                                 "inizio": round(t, 3), "durata": round(L, 3), "query": g["tipo"].lower()})
+                t += L
+                continue
+            if sg.get("ia"):
+                timeline.append({"id": f"ia{f['n']}", "tipo": "foto", "ia": True,
+                                 "file": str(sg["ia"].relative_to(prj)), "frase": f["n"], "parola": sg.get("parola"),
+                                 "inizio": round(t, 3), "durata": round(L, 3), "query": "immagine IA",
+                                 "autore": "Immagine generata con IA (Canva)", "autore_url": "", "pagina": ""})
+                t += L
+                continue
             prod = scena_prodotto(prj, f["n"], j, len(pezzi))
             if prod:
                 timeline.append({**prod, "frase": f["n"], "inizio": round(t, 3), "durata": round(L, 3)})
@@ -476,19 +623,21 @@ def cmd_visual(prj):
                         break
                     usati.add(b["id"])
                     sotto.append(b)
-                for b in sotto:
+                for k, b in enumerate(sotto):
                     timeline.append({**b, "frase": f["n"], "inizio": round(t, 3),
-                                     "durata": round(L / len(sotto), 3)})
+                                     "durata": round(L / len(sotto), 3),
+                                     "parola": sg.get("parola") if k == 0 else None})
                     t += L / len(sotto)
                 continue
             if not a:
                 raise SystemExit(f"Nessuna immagine adatta per la frase {f['n']} ({qs[0]}): "
                                  "cambia le parole chiave nel copione.")
             usati.add(a["id"])
-            timeline.append({**a, "frase": f["n"], "inizio": round(t, 3), "durata": round(L, 3)})
+            timeline.append({**a, "frase": f["n"], "inizio": round(t, 3), "durata": round(L, 3),
+                             "parola": sg.get("parola")})
             t += L
     for i, s in enumerate(timeline):
-        if s["tipo"] != "prodotto":
+        if s["tipo"] not in ("prodotto", "cartello") and not s.get("ia"):
             s["file"] = str(scarica(prj, s).relative_to(prj))
         print(f"  [{i + 1}/{len(timeline)}] frase {s['frase']}: {s['tipo']} {s['id']} "
               f"{s['durata']:.1f}s  '{s['query']}'")
@@ -500,7 +649,10 @@ def cmd_visual(prj):
 def scrivi_crediti(prj, timeline):
     righe = ["CREDITI - immagini e video da Pexels (licenza Pexels, uso gratuito)", ""]
     for s in timeline:
-        if s["tipo"] == "prodotto":
+        if s["tipo"] in ("prodotto", "cartello"):
+            continue
+        if s.get("ia"):
+            righe.append(f"Frase {s['frase']:>2} | IA    | immagine generata con intelligenza artificiale (Canva)")
             continue
         righe.append(f"Frase {s['frase']:>2} | {s['tipo']:5} | {s['autore']} ({s['autore_url']}) | {s['pagina']}")
     righe += ["", "Font: Poppins (SIL Open Font License)."]
@@ -551,13 +703,47 @@ def tela_prodotto(src, out):
     return out
 
 
+def sfondo_cartello(prj, variante):
+    """Fondo dei cartelli dello stile mix: verde brand per i capitoli, scuro con alone verde per gli altri.
+    Il testo animato lo disegnano i sottotitoli ASS sopra il fondo."""
+    out = lavoro(prj, "media") / f"sfondo_{variante}.jpg"
+    if out.exists():
+        return out
+    if variante == "capitolo":
+        a, b, glow, alone = (0x34, 0x92, 0x5a), (0x0f, 0x2a, 0x19), (0xda, 0xf5, 0xd5), 0.22
+    else:
+        a, b, glow, alone = (0x10, 0x1a, 0x14), (0x04, 0x07, 0x05), (0x34, 0x92, 0x5a), 0.55
+    img = Image.new("RGB", (W, H))
+    d = ImageDraw.Draw(img)
+    for y in range(H):   # sfumatura dall'alto in basso, poi alone di luce al centro
+        k = y / H
+        d.line([(0, y), (W, y)], fill=tuple(int(a[i] * (1 - k) + b[i] * k) for i in range(3)))
+    luce = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(luce).ellipse([W * 0.18, H * 0.05, W * 0.82, H * 0.95], fill=int(255 * alone))
+    img.paste(Image.new("RGB", (W, H), glow), (0, 0), luce.filter(ImageFilter.GaussianBlur(260)))
+    grana = Image.effect_noise((W, H), 18).convert("RGB")   # grana leggera, come nel video di riferimento
+    img = Image.blend(img, grana, 0.05)
+    if variante == "capitolo":   # strisce diagonali appena visibili
+        st = Image.new("L", (W, H), 0)
+        ds = ImageDraw.Draw(st)
+        for x in range(-H, W, 90):
+            ds.line([(x, H), (x + H, 0)], fill=22, width=28)
+        img.paste(Image.new("RGB", (W, H), "white"), (0, 0), st)
+    img.save(out, quality=94)
+    return out
+
+
 def render_inquadratura(prj, s, idx, durata_out):
     out = lavoro(prj, "inquadrature") / f"{idx:03d}_{s['id']}_{durata_out:.2f}.mp4"
     if out.exists():
         return out
+    if s["tipo"] == "cartello":
+        variante = "capitolo" if s["grafica"]["tipo"] == "CAPITOLO" else "scuro"
+        s = {**s, "tipo": "foto", "file": str(sfondo_cartello(prj, variante).relative_to(prj)), "zoom": 0.035}
     src = prj / s["file"]
     n = max(1, round(durata_out * FPS))
-    zoom = cfg()["zoom_video"] if s["tipo"] == "video" else cfg()["zoom_foto"]
+    c = cfgp(prj)
+    zoom = s.get("zoom") or (c["zoom_video"] if s["tipo"] == "video" else c["zoom_foto"])
     # direzione del movimento alternata per non avere tutte le scene uguali
     dx = ["iw/2-(iw/zoom/2)", "(iw-iw/zoom)*on/{n}", "(iw-iw/zoom)*(1-on/{n})"][idx % 3].format(n=n)
     zp = (f"zoompan=z='1+{zoom}*on/{n}':x='{dx}':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS}")
@@ -673,10 +859,171 @@ def evidenzia(blocco, kw):
     return pat.sub(lambda m: f"{{\\c{hexass(MENTA)}}}{m.group(1)}{{\\c{hexass(BIANCO)}}}", blocco, count=1)
 
 
+# ---------------------------------------------------------------- stile mix: grafiche animate (ASS) ed effetti
+
+GIALLO, ROSSO = "#FFE600", "#FF4D4D"
+
+
+def ass_testo(t):
+    return t.replace("\\", "/").replace("{", "(").replace("}", ")")
+
+
+def a_capo(testo, max_char):
+    righe, cur = [], ""
+    for w in testo.split():
+        if cur and len(cur) + 1 + len(w) > max_char:
+            righe.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        righe.append(cur)
+    return r"\N".join(ass_testo(r) for r in righe)
+
+
+def larghezza(testo, size, font=FONT_XBOLD):
+    return ImageFont.truetype(str(font), size).getlength(testo)
+
+
+def numero_animato(testo):
+    """'+200' -> ("+", 200.0, "", 0 decimali); None se non c'e' un numero."""
+    m = re.match(r"^(\D*?)(\d+(?:[.,]\d+)?)(.*)$", testo.strip())
+    if not m:
+        return None
+    cifra = m.group(2).replace(".", "").replace(",", ".") if re.search(r"\.\d{3}$", m.group(2)) \
+        else m.group(2).replace(",", ".")
+    dec = len(cifra.split(".")[1]) if "." in cifra else 0
+    return m.group(1), float(cifra), m.group(3), dec
+
+
+def formato_numero(v, dec):
+    if dec:
+        return f"{v:.{dec}f}".replace(".", ",")
+    return f"{int(round(v)):,}".replace(",", ".")
+
+
+STILI_MIX = """Style: Titolo,Poppins ExtraBold,180,{B},{B},{S},&H8C000000,0,0,0,0,100,100,0,0,1,7,5,5,100,100,0,1
+Style: Numero,Poppins ExtraBold,340,{G},{G},{S},&H8C000000,0,0,0,0,100,100,0,0,1,9,6,5,100,100,0,1
+Style: Didascalia,Poppins,74,{M},{M},{S},&H8C000000,-1,0,0,0,100,100,0,0,1,4,3,5,120,120,0,1
+Style: Voce,Poppins,86,{B},{B},{S},&H8C000000,-1,0,0,0,100,100,0,0,1,4,3,4,0,0,0,1
+Style: Spunta,DejaVu Sans,70,{B},{B},{V},&H00000000,-1,0,0,0,100,100,0,0,3,16,0,5,0,0,0,1
+Style: CapEtichetta,Poppins,66,{S},{S},{M},&H00000000,-1,0,0,0,100,100,4,0,3,20,0,5,0,0,0,1
+Style: CapTitolo,Poppins ExtraBold,140,{B},{B},{S},&H8C000000,0,0,0,0,100,100,0,0,1,0,6,5,100,100,0,1
+Style: Parola,Poppins ExtraBold,110,{B},{B},{V},&H00000000,0,0,0,0,100,100,0,0,3,20,0,5,0,0,0,1
+Style: Barra,Poppins,10,{B},{B},{B},&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1"""
+
+
+def eventi_mix(prj, totale):
+    """Grafiche dello stile mix sopra le inquadrature: cartelli (capitolo, titolo, numero, elenco, barrato),
+    parole giganti, barra di avanzamento. Restituisce eventi ASS, intervalli dei cartelli ed effetti sonori."""
+    timeline = json.loads((lavoro(prj) / "timeline.json").read_text())
+    ev, cartelli, sfx = [], [], []
+    col, T = hexass, ts_ass
+    for s in timeline:
+        a, d = s["inizio"], s["durata"]
+        e = a + d
+        if s["tipo"] == "cartello":
+            g = s["grafica"]
+            tipo = g["tipo"]
+            cartelli.append((a, e, tipo))
+            if tipo == "NUMERO" and not numero_animato(g["testo"].split("|")[0]):
+                tipo = "TITOLO"
+            if tipo == "CAPITOLO":
+                ev.append(f"Dialogue: 4,{T(a + 0.05)},{T(e)},CapEtichetta,,0,0,0,,"
+                          f"{{\\move(1560,370,960,370,0,320)\\fad(100,200)}}{ass_testo(g['etichetta'])}")
+                ev.append(f"Dialogue: 4,{T(a + 0.12)},{T(e)},CapTitolo,,0,0,0,,"
+                          f"{{\\move(1700,590,960,590,0,380)\\fad(100,200)}}{a_capo(g['titolo'], 16)}")
+                x0, y0 = 760, 790
+                ev.append(f"Dialogue: 3,{T(a + 0.3)},{T(e)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c{col(MENTA)}"
+                          f"\\clip({x0},{y0},{x0},{y0 + 10})\\t(0,450,\\clip({x0},{y0},{x0 + 400},{y0 + 10}))"
+                          f"\\fad(0,200)\\p1}}m {x0} {y0} l {x0 + 400} {y0} {x0 + 400} {y0 + 10} {x0} {y0 + 10}{{\\p0}}")
+                sfx.append([a, "whoosh", 0.9])
+            elif tipo == "TITOLO":
+                txt = a_capo(g["testo"].upper(), 14)
+                ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,540)\\fad(60,200)"
+                          f"\\fscx118\\fscy118\\t(0,200,\\fscx100\\fscy100)}}{txt}")
+                for t0, t1 in ((a, a + 0.16), (a + 0.55, a + 0.62)):   # piccolo "glitch" a colori
+                    ev.append(f"Dialogue: 4,{T(t0)},{T(t1)},Titolo,,0,0,0,,{{\\pos(974,532)\\1c{col(VERDE)}"
+                              f"\\3a&HFF&\\4a&HFF&}}{txt}")
+                    ev.append(f"Dialogue: 4,{T(t0)},{T(t1)},Titolo,,0,0,0,,{{\\pos(946,548)\\1c{col(GIALLO)}"
+                              f"\\3a&HFF&\\4a&HFF&}}{txt}")
+                sfx += [[a, "whoosh", 0.5], [a + 0.03, "pop", 0.8]]
+            elif tipo == "NUMERO":
+                parti = [x.strip() for x in g["testo"].split("|")]
+                pre, val, suf, dec = numero_animato(parti[0])
+                conta, passi = min(1.3, d * 0.45), 26
+                for k in range(passi):
+                    x = k / (passi - 1)
+                    v = val * (1 - (1 - x) ** 3)
+                    t0 = a + 0.1 + conta * k / passi
+                    t1 = e if k == passi - 1 else a + 0.1 + conta * (k + 1) / passi
+                    fx = "\\t(0,140,\\fscx112\\fscy112)\\t(140,300,\\fscx100\\fscy100)\\fad(0,200)" \
+                        if k == passi - 1 else ""
+                    ev.append(f"Dialogue: 5,{T(t0)},{T(t1)},Numero,,0,0,0,,{{\\pos(960,460){fx}}}"
+                              f"{ass_testo(pre + formato_numero(v, dec) + suf)}")
+                    if k % 2 == 0 and k < passi - 1:
+                        sfx.append([t0, "tick", 0.35])
+                sfx.append([a + 0.1 + conta, "ding", 0.7])
+                if len(parti) > 1:
+                    ev.append(f"Dialogue: 5,{T(a + 0.35)},{T(e)},Didascalia,,0,0,0,,{{\\pos(960,750)"
+                              f"\\fad(200,200)}}{a_capo(parti[1].upper(), 30)}")
+            elif tipo == "ELENCO":
+                parti = [x.strip() for x in g["testo"].split("|")]
+                titolo, voci = (parti[0], parti[1]) if len(parti) > 1 else ("", parti[0])
+                voci = [v.strip() for v in voci.split(";") if v.strip()][:6]
+                n = len(voci)
+                h = 150 if n <= 4 else 120
+                yc = 590 if titolo else 540
+                y0 = yc - (n - 1) * h / 2
+                passo = min(2.2, (d - 0.9) / max(n, 1))
+                if titolo:
+                    ev.append(f"Dialogue: 5,{T(a)},{T(e)},Didascalia,,0,0,0,,{{\\pos(960,{y0 - 150:.0f})"
+                              f"\\fad(150,200)}}{a_capo(titolo.upper(), 34)}")
+                for i, v in enumerate(voci):
+                    y, t0 = y0 + i * h, a + 0.3 + i * passo
+                    ev.append(f"Dialogue: 5,{T(t0)},{T(e)},Spunta,,0,0,0,,{{\\pos(540,{y:.0f})\\fad(0,200)"
+                              f"\\fscx40\\fscy40\\t(0,160,\\fscx100\\fscy100)}}✓")
+                    ev.append(f"Dialogue: 5,{T(t0 + 0.05)},{T(e)},Voce,,0,0,0,,{{\\move(680,{y:.0f},620,{y:.0f},0,200)"
+                              f"\\fad(150,200)}}{ass_testo(v)}")
+                    sfx += [[t0, "pop", 0.6], [t0 + 0.08, "ding", 0.35]]
+            elif tipo == "BARRATO":
+                parti = [x.strip() for x in g["testo"].split("|")]
+                r1 = parti[0].upper()
+                w = larghezza(r1, 130)
+                x0, x1, y = 960 - w / 2 - 24, 960 + w / 2 + 24, 405   # a meta' delle maiuscole
+                ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,420)\\fs130\\fad(60,200)"
+                          f"\\fscx115\\fscy115\\t(0,180,\\fscx100\\fscy100)\\t(800,1000,\\alpha&H70&)}}{ass_testo(r1)}")
+                ev.append(f"Dialogue: 6,{T(a + 0.5)},{T(e)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c{col(ROSSO)}"
+                          f"\\clip({x0:.0f},{y - 20},{x0:.0f},{y + 30})\\t(0,300,\\clip({x0:.0f},{y - 20},{x1:.0f},{y + 30}))"
+                          f"\\fad(0,200)\\p1}}m {x0:.0f} {y} l {x1:.0f} {y} {x1:.0f} {y + 16} {x0:.0f} {y + 16}{{\\p0}}")
+                sfx += [[a, "pop", 0.7], [a + 0.5, "swish", 0.8]]
+                if len(parti) > 1:
+                    ev.append(f"Dialogue: 5,{T(a + 1.0)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,670)\\fs140\\1c{col(GIALLO)}"
+                              f"\\fad(80,200)\\fscx60\\fscy60\\t(0,200,\\fscx100\\fscy100)}}{a_capo(parti[1].upper(), 18)}")
+                    sfx.append([a + 1.0, "pop", 0.8])
+        elif s.get("parola"):
+            t0, t1 = a + 0.2, min(e - 0.1, a + 3.4)
+            if t1 - t0 > 0.6:
+                ev.append(f"Dialogue: 5,{T(t0)},{T(t1)},Parola,,0,0,0,,{{\\pos(960,330)\\fad(120,180)"
+                          f"\\fscx70\\fscy70\\t(0,180,\\fscx100\\fscy100)}}{a_capo(s['parola'].upper(), 20)}")
+                sfx.append([t0, "pop", 0.55])
+    # barra di avanzamento in alto: si riempie per tutta la durata del contenuto
+    rett = f"m 0 0 l {W} 0 {W} 10 0 10"
+    ev.append(f"Dialogue: 2,{ts_ass(0)},{ts_ass(totale)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c&H000000&"
+              f"\\1a&H90&\\p1}}{rett}{{\\p0}}")
+    ev.append(f"Dialogue: 3,{ts_ass(0)},{ts_ass(totale)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c{hexass(VERDE)}"
+              f"\\clip(0,0,0,10)\\t(0,{int(totale * 1000)},\\clip(0,0,{W},10))\\p1}}{rett}{{\\p0}}")
+    (lavoro(prj) / "sfx_eventi.json").write_text(json.dumps(sorted(sfx)))
+    stili = STILI_MIX.format(B=hexass(BIANCO), S=hexass(SCURO), G=hexass(GIALLO), M=hexass(MENTA), V=hexass(VERDE))
+    return stili, ev, cartelli
+
+
 def scrivi_ass(prj, frasi, totale):
-    c, p = cfg(), progetto(prj)
+    c, p = cfgp(prj), progetto(prj)
     override = p.get("parole_evidenziate", {})
     etichette = p.get("etichette_sezioni", {})
+    stili_mix, ev_mix, cartelli = eventi_mix(prj, totale) if mix_attivo(prj) else ("", [], [])
+    coperto = lambda t: any(a <= t <= b for a, b, _ in cartelli)
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -688,11 +1035,12 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Sub,Poppins,{c['sottotitoli_size']},{hexass(BIANCO)},{hexass(BIANCO)},{hexass(SCURO)},&H96000000,-1,0,0,0,100,100,0,0,1,6,3,2,160,160,{c['sottotitoli_margine']},1
 Style: Sezione,Poppins,44,{hexass(BIANCO)},{hexass(BIANCO)},{hexass(VERDE)},&H00000000,-1,0,0,0,100,100,1,0,3,16,0,7,70,70,60,1
+{stili_mix}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    ev = []
+    ev = list(ev_mix)
     for f in frasi:
         kw = parola_chiave(f, override)
         bl = blocchi(f["testo"], c["sottotitoli_caratteri"])
@@ -701,7 +1049,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for b in bl:
             d = f["durata"] * len(b) / tot
             pop = r"{\fscx92\fscy92\t(0,110,\fscx100\fscy100)}"
-            ev.append(f"Dialogue: 1,{ts_ass(t)},{ts_ass(t + d - 0.02)},Sub,,0,0,0,,{pop}{evidenzia(b, kw)}")
+            if not coperto(t + d / 2):   # sopra i cartelli a tutto schermo il sottotitolo non serve
+                ev.append(f"Dialogue: 1,{ts_ass(t)},{ts_ass(t + d - 0.02)},Sub,,0,0,0,,{pop}{evidenzia(b, kw)}")
             t += d
     # etichetta della sezione in alto a sinistra (barra verde del brand)
     sezioni = {}
@@ -710,6 +1059,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         s[1] = f["inizio"] + f["scena"]
     for nome, (a, b) in sezioni.items():
         lab = etichette.get(nome, nome if nome.upper().startswith("MOSSA") else "")
+        # nello stile mix l'etichetta parte dopo il cartello del capitolo
+        a = max([a] + [fine for inizio, fine, tipo in cartelli if tipo == "CAPITOLO" and abs(inizio - a) < 0.05])
         if lab:
             ev.append(f"Dialogue: 0,{ts_ass(a + 0.3)},{ts_ass(b)},Sezione,,0,0,0,,{{\\fad(250,250)}}{lab.upper()}")
     out = lavoro(prj) / "sottotitoli.ass"
@@ -741,27 +1092,80 @@ def musica_continua(brano, durata_min, out):
     return out
 
 
+def sfx_file(prj, nome):
+    """Effetti sonori dello stile mix, sintetizzati con ffmpeg (nessun file da scaricare, nessuna licenza)."""
+    out = lavoro(prj, "sfx") / f"{nome}.wav"
+    if out.exists():
+        return out
+    src = {
+        "whoosh": "anoisesrc=d=0.7:c=pink:a=0.9:r=48000,highpass=f=300,lowpass=f=6000,"
+                  "afade=t=in:d=0.3:curve=exp,afade=t=out:st=0.3:d=0.4",
+        "swish": "anoisesrc=d=0.35:c=white:a=0.7:r=48000,highpass=f=2500,afade=t=in:d=0.08,afade=t=out:st=0.12:d=0.23",
+        "pop": "aevalsrc='0.9*sin(2*PI*(500+700*exp(-40*t))*t)*exp(-30*t)':d=0.14:s=48000",
+        "ding": "aevalsrc='0.5*sin(2*PI*1568*t)*exp(-5*t)+0.25*sin(2*PI*2352*t)*exp(-7*t)':d=1.0:s=48000",
+        "tick": "aevalsrc='0.8*sin(2*PI*2400*t)*exp(-150*t)':d=0.04:s=48000",
+    }[nome]
+    ff("-f", "lavfi", "-i", src, "-ac", "2", "-ar", "48000", out)
+    return out
+
+
+def traccia_sfx(prj, totale):
+    """Mette gli effetti sonori (lavoro/sfx_eventi.json, scritto con i sottotitoli) su una traccia lunga quanto il contenuto."""
+    f = lavoro(prj) / "sfx_eventi.json"
+    eventi = json.loads(f.read_text()) if f.exists() else []
+    if not eventi:
+        return None
+    import numpy as np
+    import wave
+    sr = 48000
+    buf = np.zeros((int(totale * sr) + sr, 2), dtype=np.float32)
+    suoni = {}
+    for t, nome, gain in eventi:
+        if nome not in suoni:
+            raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(sfx_file(prj, nome)), "-f", "f32le",
+                                  "-ac", "2", "-ar", str(sr), "-"], capture_output=True, check=True).stdout
+            suoni[nome] = np.frombuffer(raw, dtype=np.float32).reshape(-1, 2)
+        x = suoni[nome] * gain
+        i = int(max(0.0, t) * sr)
+        j = min(len(buf), i + len(x))
+        buf[i:j] += x[:j - i]
+    pcm = (np.clip(buf[:int(totale * sr)], -1, 1) * 32767).astype(np.int16)
+    out = lavoro(prj) / "sfx.wav"
+    with wave.open(str(out), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm.tobytes())
+    return out
+
+
 def cmd_monta(prj):
-    c, p = cfg(), progetto(prj)
+    c, p = cfgp(prj), progetto(prj)
     frasi = frasi_con_tempi(prj)
     timeline = json.loads((lavoro(prj) / "timeline.json").read_text())
     F = c["dissolvenza"]
     T = frasi[-1]["inizio"] + frasi[-1]["scena"]
     fin = schermata_finale(prj)
+    scene = timeline + [fin]
     durate = [s["durata"] for s in timeline] + [c["durata_finale"]]
-    # 1) inquadrature renderizzate (ognuna allungata della dissolvenza, tranne la finale)
+    # transizione all'ingresso di ogni scena: dissolvenza; nello stile mix il cartello di capitolo entra ed
+    # esce scorrendo di lato (come i cambi di gruppo del video di riferimento)
+    capitolo = lambda s: s.get("tipo") == "cartello" and s["grafica"]["tipo"] == "CAPITOLO"
+    trans = [None] + [("slideleft", c["transizione_capitolo"]) if capitolo(scene[i - 1]) or capitolo(scene[i])
+                      else ("fade", F) for i in range(1, len(scene))]
+    # 1) inquadrature renderizzate (ognuna allungata della transizione in uscita, tranne la finale)
     files = []
-    for i, s in enumerate(timeline + [fin]):
-        extra = F if i < len(timeline) else 0
+    for i, s in enumerate(scene):
+        extra = trans[i + 1][1] if i + 1 < len(scene) else 0
         files.append(render_inquadratura(prj, {**s, "durata_clip": s.get("durata_clip", 0)}, i, durate[i] + extra))
-    # 2) catena di dissolvenze + sottotitoli
+    # 2) catena di transizioni + sottotitoli
     ass = scrivi_ass(prj, frasi, T)
     inp, fc, prev, off = [], [], "0:v", 0.0
     for f in files:
         inp += ["-i", f]
     for i in range(1, len(files)):
         off += durate[i - 1]
-        fc.append(f"[{prev}][{i}:v]xfade=transition=fade:duration={F}:offset={off:.3f}[x{i}]")
+        fc.append(f"[{prev}][{i}:v]xfade=transition={trans[i][0]}:duration={trans[i][1]}:offset={off:.3f}[x{i}]")
         prev = f"x{i}"
     fontsdir = str(FONT_DIR).replace("\\", "/").replace(":", "\\:")
     assp = str(ass).replace("\\", "/").replace(":", "\\:")
@@ -801,6 +1205,14 @@ def cmd_monta(prj):
     else:
         print("  ATTENZIONE: cartella musiche vuota, video senza musica di sottofondo.")
         ff("-i", voce, "-ac", "2", mix)
+    if mix_attivo(prj):   # effetti sonori dei cartelli (pop, whoosh, ding) sotto la voce
+        sfx = traccia_sfx(prj, totale)
+        if sfx:
+            con_sfx = lavoro(prj) / "audio_mix_sfx.wav"
+            ff("-i", mix, "-i", sfx, "-filter_complex",
+               f"[1:a]volume={c['sfx_volume']}[s];[0:a][s]amix=inputs=2:duration=first:normalize=0[a]",
+               "-map", "[a]", con_sfx)
+            mix = con_sfx
     audio = lavoro(prj) / "audio_finale.wav"
     loudnorm(mix, audio, c["lufs"])
     contenuto = lavoro(prj) / "contenuto.mp4"
@@ -873,8 +1285,9 @@ def cmd_controllo(prj):
     timeline = json.loads((lavoro(prj) / "timeline.json").read_text())
     ids = [s["id"] for s in timeline]
     doppi = sorted({i for i in ids if ids.count(i) > 1})
-    lunghe = [(s["frase"], s["durata"]) for s in timeline
-              if s["durata"] > (cfg()["max_foto"] if s["tipo"] == "foto" else cfg()["max_inquadratura"]) + 0.01]
+    c = cfgp(prj)
+    lunghe = [(s["frase"], s["durata"]) for s in timeline if s["tipo"] != "cartello"
+              and s["durata"] > (c["max_foto"] if s["tipo"] == "foto" and not s.get("ia") else c["max_inquadratura"]) + 0.01]
     lufs = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "ebur128=peak=true",
                            "-f", "null", "-"], capture_output=True, text=True).stderr
     m = re.findall(r"I:\s+(-?[\d.]+) LUFS", lufs)
@@ -891,7 +1304,8 @@ def cmd_controllo(prj):
 
 def cmd_miniatura(prj):
     p = progetto(prj)
-    timeline = json.loads((lavoro(prj) / "timeline.json").read_text())
+    # i cartelli dello stile mix non hanno un'immagine: la miniatura usa la prima immagine vera della frase
+    timeline = [s for s in json.loads((lavoro(prj) / "timeline.json").read_text()) if s["tipo"] != "cartello"]
     scelta = next((i for i, s in enumerate(timeline) if s["frase"] == p.get("miniatura_frase", 2)), 0)
     s = timeline[scelta]
     sfondo = lavoro(prj) / "miniatura_sfondo.jpg"
@@ -1069,7 +1483,7 @@ def main():
         cmd_monta(prj)
         cmd_controllo(prj)
         return
-    passi = {"voci": [cmd_voci], "voce": [cmd_voce], "visual": [cmd_visual], "monta": [cmd_monta],
+    passi = {"ia": [cmd_ia], "voci": [cmd_voci], "voce": [cmd_voce], "visual": [cmd_visual], "monta": [cmd_monta],
              "controllo": [cmd_controllo], "miniatura": [cmd_miniatura], "testi": [cmd_testi],
              "tutto": [cmd_voce, cmd_visual, cmd_monta, cmd_controllo, cmd_miniatura, cmd_testi]}
     if cmd not in passi:

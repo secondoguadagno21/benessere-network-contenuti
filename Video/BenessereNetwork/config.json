@@ -27,5 +27,16 @@
   "lufs": -14,
   "tts_frasi_per_richiesta": 5,
   "tts_parole_per_richiesta": 75,
-  "musica_sovrapposizione": 4.0
+  "musica_sovrapposizione": 4.0,
+  "mix": {
+    "dissolvenza": 0.12,
+    "transizione_capitolo": 0.35,
+    "zoom_video": 0.06,
+    "zoom_foto": 0.14,
+    "max_foto": 5.0,
+    "durata_capitolo": 2.6,
+    "durata_cartello": 3.2,
+    "max_elenco": 9.0,
+    "sfx_volume": 0.5
+  }
 }

@@ -93,10 +93,10 @@ Poi manda all'utente un'anteprima 720p (`ffmpeg -vf scale=1280:-2 -crf 28`, file
   condensato), badge verde #34925a con bordo bianco (es. "7 MOSSE"), un'icona-simbolo (batteria scarica,
   sveglia...), alto contrasto, niente altro testo.
 - `export-design` jpg 1280x720 qualita' 92.
-- Il container NON raggiunge `export-download.canva.com`: passa dal sito. `WPvibe upload_media`
-  (site_url benesserenetwork.com, url = link di export Canva, title "Miniatura YouTube <tema>") ->
-  restituisce un URL `wp-content/uploads/...` che si scarica con curl. Salvalo come `PROGETTO/miniatura.jpg`
-  e tieni l'ID attachment: serve per l'immagine in evidenza e per Facebook.
+- `WPvibe upload_media` (site_url benesserenetwork.com, url = link di export Canva, title "Miniatura YouTube
+  <tema>") -> restituisce un URL `wp-content/uploads/...` che si scarica con curl. Salvalo come
+  `PROGETTO/miniatura.jpg` e tieni l'ID attachment: serve per l'immagine in evidenza e per Facebook.
+  (Dal 21/11/2026 l'ambiente SHOP BN raggiunge anche `export-download.canva.com` direttamente con curl.)
 - Mostra la miniatura all'utente prima di pubblicare.
 
 ## 5. YouTube
@@ -189,10 +189,16 @@ fa `git rm -r --cached` + cancella `progetti/<progetto>/lavoro/voce` e committa:
 miniatura, youtube.json, testi e crediti. Cosi' il repository resta leggero anche con 4 video a settimana.
 
 ## Blocchi di rete noti (container)
-Bloccati: `shop.benesserenetwork.com`, `export-download.canva.com`, `i.ytimg.com`, `drive.usercontent.google.com`.
+Bloccati: `i.ytimg.com`, `drive.usercontent.google.com`, `media.canva.com` (anteprime firmate, non ingrandibili).
+`shop.benesserenetwork.com` e `export-download.canva.com` sono consentiti nell'ambiente SHOP BN (dal 21/11/2026);
+in un altro ambiente possono essere bloccati: allora passa dal sito con `WPvibe upload_media`.
 Raggiungibili: benesserenetwork.com, API Pexels/Gemini/YouTube. File da Drive: connettore Google Drive
-(`download_file_content`, poi decodifica base64 dal file salvato). Immagini da siti bloccati: `WPvibe upload_media`.
+(`download_file_content`, poi decodifica base64 dal file salvato).
+Gemini con la chiave gratuita: TTS e modelli Flash si', modelli Pro e generazione immagini no (quota 0).
 
-## In arrivo
-Stacchi grafici / motion graphic (cartelli di sezione a tinta unita, numeri e parole giganti, elenchi
-animati ogni 10-15 s): vedi "Prossimo passo" in `PROCEDURA.md`. Non ancora nello script.
+## Stile MIX (in prova, ramo `stile-mix`)
+Video "interattivo" sul modello del video di Rosy Rodriguez: clip + immagini IA Canva + cartelli animati
+(capitoli che scorrono, titoli giganti, contatori, checklist, scritte barrate, parole giganti) con effetti
+sonori. Si attiva con `"stile": "mix"` in progetto.json; le grafiche si scrivono nel copione dopo le query
+(`|| NUMERO: 10 | minuti di luce`). Sintassi, dosaggio e catena delle immagini IA: `Video/BenessereNetwork/STILE-MIX.md`.
+Non usarlo nelle routine finche' David non lo approva.
