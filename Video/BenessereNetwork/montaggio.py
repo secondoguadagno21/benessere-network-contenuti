@@ -346,9 +346,10 @@ def frasi_con_tempi(prj):
     frasi = leggi_copione(prj)
     dur = json.loads((lavoro(prj, "voce") / "durate.json").read_text())
     c, t = cfg(), 0.0
+    extra = {int(k): v for k, v in progetto(prj).get("pause_extra", {}).items()}   # {"15": 2.0}: piu' tempo a schermo
     for f in frasi:
         f["durata"] = dur[str(f["n"])]
-        f["pausa"] = c["pausa_fine_sezione"] if f["fine_sezione"] else c["pausa_frase"]
+        f["pausa"] = (c["pausa_fine_sezione"] if f["fine_sezione"] else c["pausa_frase"]) + extra.get(f["n"], 0.0)
         f["inizio"] = t
         f["scena"] = f["durata"] + f["pausa"]
         t += f["scena"]
@@ -985,7 +986,7 @@ def eventi_mix(prj, totale):
                 h = 175 if n <= 4 else 138
                 yc = 600 if titolo else 540
                 y0 = yc - (n - 1) * h / 2
-                passo = min(2.2, (d - 0.9) / max(n, 1))
+                passo = min(2.2, (d * 0.75 - 0.6) / max(n, 1))   # le spunte seguono la voce, poi la lista resta
                 # blocco centrato sulla voce piu' lunga (icona 100 px + 40 px di spazio + testo)
                 testo_w = max(larghezza(v, 112, FONT_MXBOLD) for v in voci)
                 scala = min(1.0, 1500 / testo_w)

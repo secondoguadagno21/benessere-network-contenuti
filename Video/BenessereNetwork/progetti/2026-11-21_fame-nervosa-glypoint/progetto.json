@@ -93,5 +93,8 @@
   "finale_righe": [
     "Scrivi nei commenti la tua tentazione delle 23",
     "Link cliente e incaricato nel primo commento"
-  ]
+  ],
+  "pause_extra": {
+    "15": 2.0
+  }
 }
