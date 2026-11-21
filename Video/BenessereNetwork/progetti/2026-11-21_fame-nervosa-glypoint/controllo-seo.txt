@@ -1,0 +1,19 @@
+OK    keyword 'fame nervosa' nel titolo
+OK    keyword nelle prime 2 righe della descrizione
+OK    keyword detta nelle prime 20 parole del gancio
+OK    keyword detta almeno 2 volte nel video (ora 2)
+OK    keyword tra i tag
+OK    hashtag #famenervosa in descrizione
+OK    titolo intero tra i tag
+MANCA correlata 'fame emotiva' nella descrizione o nel parlato
+MANCA correlata 'voglia di dolce la sera' nella descrizione o nel parlato
+MANCA correlata 'glicemia' nella descrizione o nel parlato
+OK    correlata 'glypoint drops' nella descrizione o nel parlato
+MANCA almeno una correlata o ricerca detta nel gancio
+OK    gancio di 15-25 s prima dell'intro col logo (ora 17.9 s)
+OK    CTA parlata a meta' video (commenta se anche tu... / iscriviti)
+OK    invito a iscriversi al canale detto nel video
+OK    invito a commentare detto nel video
+OK    almeno 3 ricerche reali ("come fare a...", "come risolvere...")
+MANCA link all'articolo in descrizione
+INFO  17 tag, 439/500 caratteri

@@ -606,7 +606,8 @@ def cmd_visual(prj):
                 continue
             prod = scena_prodotto(prj, f["n"], j, len(pezzi))
             if prod:
-                timeline.append({**prod, "frase": f["n"], "inizio": round(t, 3), "durata": round(L, 3)})
+                timeline.append({**prod, "frase": f["n"], "inizio": round(t, 3), "durata": round(L, 3),
+                                 "parola": sg.get("parola")})
                 t += L
                 continue
             # query in rotazione: la j-esima parola chiave per la j-esima inquadratura
@@ -704,31 +705,18 @@ def tela_prodotto(src, out):
 
 
 def sfondo_cartello(prj, variante):
-    """Fondo dei cartelli dello stile mix: verde brand per i capitoli, scuro con alone verde per gli altri.
-    Il testo animato lo disegnano i sottotitoli ASS sopra il fondo."""
-    out = lavoro(prj, "media") / f"sfondo_{variante}.jpg"
+    """Fondo dei cartelli dello stile mix (come il video di riferimento): nero profondo con un alone verde
+    radiale, piu' acceso nei capitoli, e grana leggera. Il testo animato lo disegnano i sottotitoli ASS."""
+    out = lavoro(prj, "media") / f"sfondo2_{variante}.jpg"
     if out.exists():
         return out
-    if variante == "capitolo":
-        a, b, glow, alone = (0x34, 0x92, 0x5a), (0x0f, 0x2a, 0x19), (0xda, 0xf5, 0xd5), 0.22
-    else:
-        a, b, glow, alone = (0x10, 0x1a, 0x14), (0x04, 0x07, 0x05), (0x34, 0x92, 0x5a), 0.55
-    img = Image.new("RGB", (W, H))
-    d = ImageDraw.Draw(img)
-    for y in range(H):   # sfumatura dall'alto in basso, poi alone di luce al centro
-        k = y / H
-        d.line([(0, y), (W, y)], fill=tuple(int(a[i] * (1 - k) + b[i] * k) for i in range(3)))
+    alone = {"capitolo": 0.62, "scuro": 0.42}[variante]
+    img = Image.new("RGB", (W, H), (3, 5, 4))
     luce = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(luce).ellipse([W * 0.18, H * 0.05, W * 0.82, H * 0.95], fill=int(255 * alone))
-    img.paste(Image.new("RGB", (W, H), glow), (0, 0), luce.filter(ImageFilter.GaussianBlur(260)))
-    grana = Image.effect_noise((W, H), 18).convert("RGB")   # grana leggera, come nel video di riferimento
-    img = Image.blend(img, grana, 0.05)
-    if variante == "capitolo":   # strisce diagonali appena visibili
-        st = Image.new("L", (W, H), 0)
-        ds = ImageDraw.Draw(st)
-        for x in range(-H, W, 90):
-            ds.line([(x, H), (x + H, 0)], fill=22, width=28)
-        img.paste(Image.new("RGB", (W, H), "white"), (0, 0), st)
+    ImageDraw.Draw(luce).ellipse([W * 0.2, H * 0.1, W * 0.8, H * 0.9], fill=int(255 * alone))
+    img.paste(Image.new("RGB", (W, H), (0x1B, 0x6F, 0x42)), (0, 0), luce.filter(ImageFilter.GaussianBlur(280)))
+    grana = Image.effect_noise((W, H), 20).convert("RGB")
+    img = Image.blend(img, grana, 0.04)
     img.save(out, quality=94)
     return out
 
@@ -754,7 +742,10 @@ def render_inquadratura(prj, s, idx, durata_out):
         lento = min(lento, 1.2)                       # mai rallentare oltre il 20%
         serve = durata_out / lento
         start = max(0.0, min((clip - serve) * 0.35, clip - serve - 0.05))
-        vf = (f"setpts={lento}*(PTS-STARTPTS),fps={FPS},scale={int(W * 1.25)}:{int(H * 1.25)}:"
+        # tpad: se la clip e' piu' corta di quanto dichiara Pexels (durata arrotondata), allunga l'ultimo
+        # fotogramma; senza, la catena di transizioni si interrompe e il resto del video sparisce
+        vf = (f"setpts={lento}*(PTS-STARTPTS),fps={FPS},tpad=stop_mode=clone:stop_duration=3,"
+              f"scale={int(W * 1.25)}:{int(H * 1.25)}:"
               f"force_original_aspect_ratio=increase,crop={int(W * 1.25)}:{int(H * 1.25)},{zp},setsar=1")
         ff("-ss", f"{start:.2f}", "-t", f"{serve + 0.1:.2f}", "-i", src, "-vf", vf,
            "-frames:v", n, *enc, out)
@@ -852,11 +843,11 @@ def blocchi(testo, max_char):
     return out
 
 
-def evidenzia(blocco, kw):
+def evidenzia(blocco, kw, colore=MENTA, maiuscolo=False):
     if not kw:
         return blocco
     pat = re.compile(rf"(?<![\wàèéìòù])({re.escape(kw)}[\wàèéìòù]*)", re.I)
-    return pat.sub(lambda m: f"{{\\c{hexass(MENTA)}}}{m.group(1)}{{\\c{hexass(BIANCO)}}}", blocco, count=1)
+    return pat.sub(lambda m: f"{{\\c{hexass(colore)}}}{m.group(1).upper() if maiuscolo else m.group(1)}{{\\c{hexass(BIANCO)}}}", blocco, count=1)
 
 
 # ---------------------------------------------------------------- stile mix: grafiche animate (ASS) ed effetti
@@ -902,23 +893,41 @@ def formato_numero(v, dec):
     return f"{int(round(v)):,}".replace(",", ".")
 
 
-STILI_MIX = """Style: Titolo,Poppins ExtraBold,180,{B},{B},{S},&H8C000000,0,0,0,0,100,100,0,0,1,7,5,5,100,100,0,1
-Style: Numero,Poppins ExtraBold,340,{G},{G},{S},&H8C000000,0,0,0,0,100,100,0,0,1,9,6,5,100,100,0,1
-Style: Didascalia,Poppins,74,{M},{M},{S},&H8C000000,-1,0,0,0,100,100,0,0,1,4,3,5,120,120,0,1
-Style: Voce,Poppins,86,{B},{B},{S},&H8C000000,-1,0,0,0,100,100,0,0,1,4,3,4,0,0,0,1
-Style: Spunta,DejaVu Sans,70,{B},{B},{V},&H00000000,-1,0,0,0,100,100,0,0,3,16,0,5,0,0,0,1
-Style: CapEtichetta,Poppins,66,{S},{S},{M},&H00000000,-1,0,0,0,100,100,4,0,3,20,0,5,0,0,0,1
-Style: CapTitolo,Poppins ExtraBold,140,{B},{B},{S},&H8C000000,0,0,0,0,100,100,0,0,1,0,6,5,100,100,0,1
-Style: Parola,Poppins ExtraBold,110,{B},{B},{V},&H00000000,0,0,0,0,100,100,0,0,3,20,0,5,0,0,0,1
-Style: Barra,Poppins,10,{B},{B},{B},&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1"""
+ACCENTO, NERO = "#2ECC71", "#050806"   # verde acceso e nero dello stile mix (dal video di riferimento)
+FONT_MBLACK = FONT_DIR / "Montserrat-Black.ttf"
+FONT_MXBOLD = FONT_DIR / "Montserrat-ExtraBold.ttf"
+
+STILI_MIX = """Style: Titolo,Montserrat Black,190,{B},{B},{N},&H5A000000,0,0,0,0,100,100,0,0,1,0,7,5,90,90,0,1
+Style: Numero,Montserrat Black,380,{A},{A},{N},&H5A000000,0,0,0,0,100,100,0,0,1,0,9,5,90,90,0,1
+Style: Didascalia,Montserrat ExtraBold,86,{B},{B},{N},&H5A000000,0,0,0,0,100,100,2,0,1,0,4,5,120,120,0,1
+Style: Voce,Montserrat ExtraBold,112,{B},{B},{N},&H5A000000,0,0,0,0,100,100,0,0,1,0,4,4,0,0,0,1
+Style: Spunta,DejaVu Sans,68,{B},{B},{N},&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: Etichetta,Montserrat ExtraBold,62,{B},{B},{N},&H00000000,0,0,0,0,100,100,4,0,1,0,0,5,0,0,0,1
+Style: CapNumero,Montserrat Black,440,{A},{A},{N},&H5A000000,0,0,0,0,100,100,0,0,1,0,10,5,0,0,0,1
+Style: CapTitolo,Montserrat Black,118,{B},{B},{N},&H5A000000,0,0,0,0,100,100,0,0,1,0,6,5,100,100,0,1
+Style: Parola,Montserrat Black,108,{B},{B},{N},&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: Forma,Montserrat ExtraBold,10,{B},{B},{B},&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1"""
+
+
+def pillola(w, h):
+    """Rettangolo con i lati corti a semicerchio (h = w: cerchio), come disegno ASS da centrare con \\an5."""
+    r, k = h / 2, h / 2 * 0.552
+    x1, y1, cy = w, h, h / 2
+    return (f"m {r:.0f} 0 l {x1 - r:.0f} 0 b {x1 - r + k:.0f} 0 {x1:.0f} {cy - k:.0f} {x1:.0f} {cy:.0f} "
+            f"b {x1:.0f} {cy + k:.0f} {x1 - r + k:.0f} {y1:.0f} {x1 - r:.0f} {y1:.0f} l {r:.0f} {y1:.0f} "
+            f"b {r - k:.0f} {y1:.0f} 0 {cy + k:.0f} 0 {cy:.0f} b 0 {cy - k:.0f} {r - k:.0f} 0 {r:.0f} 0")
 
 
 def eventi_mix(prj, totale):
     """Grafiche dello stile mix sopra le inquadrature: cartelli (capitolo, titolo, numero, elenco, barrato),
-    parole giganti, barra di avanzamento. Restituisce eventi ASS, intervalli dei cartelli ed effetti sonori."""
+    parole giganti su pillola verde, barra di avanzamento. Restituisce eventi ASS, intervalli dei cartelli
+    ed effetti sonori."""
     timeline = json.loads((lavoro(prj) / "timeline.json").read_text())
     ev, cartelli, sfx = [], [], []
     col, T = hexass, ts_ass
+    forma = lambda layer, t0, t1, x, y, w, h, colore, fx="": ev.append(
+        f"Dialogue: {layer},{T(t0)},{T(t1)},Forma,,0,0,0,,{{\\an5\\pos({x:.0f},{y:.0f})\\1c{col(colore)}{fx}\\p1}}"
+        f"{pillola(w, h)}{{\\p0}}")
     for s in timeline:
         a, d = s["inizio"], s["durata"]
         e = a + d
@@ -928,25 +937,26 @@ def eventi_mix(prj, totale):
             cartelli.append((a, e, tipo))
             if tipo == "NUMERO" and not numero_animato(g["testo"].split("|")[0]):
                 tipo = "TITOLO"
-            if tipo == "CAPITOLO":
-                ev.append(f"Dialogue: 4,{T(a + 0.05)},{T(e)},CapEtichetta,,0,0,0,,"
-                          f"{{\\move(1560,370,960,370,0,320)\\fad(100,200)}}{ass_testo(g['etichetta'])}")
-                ev.append(f"Dialogue: 4,{T(a + 0.12)},{T(e)},CapTitolo,,0,0,0,,"
-                          f"{{\\move(1700,590,960,590,0,380)\\fad(100,200)}}{a_capo(g['titolo'], 16)}")
-                x0, y0 = 760, 790
-                ev.append(f"Dialogue: 3,{T(a + 0.3)},{T(e)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c{col(MENTA)}"
-                          f"\\clip({x0},{y0},{x0},{y0 + 10})\\t(0,450,\\clip({x0},{y0},{x0 + 400},{y0 + 10}))"
-                          f"\\fad(0,200)\\p1}}m {x0} {y0} l {x0 + 400} {y0} {x0 + 400} {y0 + 10} {x0} {y0 + 10}{{\\p0}}")
-                sfx.append([a, "whoosh", 0.9])
+            if tipo == "CAPITOLO":   # "MOSSA" su pillola, numero enorme verde, titolo sotto (come i "GRUPO 01")
+                parola = g["etichetta"].rsplit(" ", 1)[0]
+                w = larghezza(parola, 62, FONT_MXBOLD) + 62 * 0.04 * len(parola) + 90
+                forma(4, a + 0.05, e, 960, 235, w, 100, ACCENTO, "\\fad(120,200)")
+                ev.append(f"Dialogue: 5,{T(a + 0.05)},{T(e)},Etichetta,,0,0,0,,{{\\pos(960,235)\\fad(120,200)}}"
+                          f"{ass_testo(parola)}")
+                ev.append(f"Dialogue: 5,{T(a + 0.1)},{T(e)},CapNumero,,0,0,0,,{{\\pos(960,505)\\fad(80,200)"
+                          f"\\fscx140\\fscy140\\t(0,260,\\fscx100\\fscy100)}}{g['numero']}")
+                ev.append(f"Dialogue: 5,{T(a + 0.25)},{T(e)},CapTitolo,,0,0,0,,{{\\move(960,880,960,830,0,300)"
+                          f"\\fad(150,200)}}{a_capo(g['titolo'], 22)}")
+                sfx += [[a, "whoosh", 0.9], [a + 0.12, "pop", 0.6]]
             elif tipo == "TITOLO":
-                txt = a_capo(g["testo"].upper(), 14)
+                txt = a_capo(g["testo"].upper(), 12)
                 ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,540)\\fad(60,200)"
-                          f"\\fscx118\\fscy118\\t(0,200,\\fscx100\\fscy100)}}{txt}")
-                for t0, t1 in ((a, a + 0.16), (a + 0.55, a + 0.62)):   # piccolo "glitch" a colori
-                    ev.append(f"Dialogue: 4,{T(t0)},{T(t1)},Titolo,,0,0,0,,{{\\pos(974,532)\\1c{col(VERDE)}"
-                              f"\\3a&HFF&\\4a&HFF&}}{txt}")
-                    ev.append(f"Dialogue: 4,{T(t0)},{T(t1)},Titolo,,0,0,0,,{{\\pos(946,548)\\1c{col(GIALLO)}"
-                              f"\\3a&HFF&\\4a&HFF&}}{txt}")
+                          f"\\fscx122\\fscy122\\t(0,200,\\fscx100\\fscy100)}}{txt}")
+                for t0, t1 in ((a, a + 0.16), (a + 0.55, a + 0.62)):   # piccolo "glitch" verde
+                    ev.append(f"Dialogue: 4,{T(t0)},{T(t1)},Titolo,,0,0,0,,{{\\pos(976,530)\\1c{col(ACCENTO)}"
+                              f"\\4a&HFF&}}{txt}")
+                    ev.append(f"Dialogue: 4,{T(t0)},{T(t1)},Titolo,,0,0,0,,{{\\pos(944,550)\\1c{col(VERDE)}"
+                              f"\\4a&HFF&}}{txt}")
                 sfx += [[a, "whoosh", 0.5], [a + 0.03, "pop", 0.8]]
             elif tipo == "NUMERO":
                 parti = [x.strip() for x in g["testo"].split("|")]
@@ -959,62 +969,72 @@ def eventi_mix(prj, totale):
                     t1 = e if k == passi - 1 else a + 0.1 + conta * (k + 1) / passi
                     fx = "\\t(0,140,\\fscx112\\fscy112)\\t(140,300,\\fscx100\\fscy100)\\fad(0,200)" \
                         if k == passi - 1 else ""
-                    ev.append(f"Dialogue: 5,{T(t0)},{T(t1)},Numero,,0,0,0,,{{\\pos(960,460){fx}}}"
+                    ev.append(f"Dialogue: 5,{T(t0)},{T(t1)},Numero,,0,0,0,,{{\\pos(960,450){fx}}}"
                               f"{ass_testo(pre + formato_numero(v, dec) + suf)}")
                     if k % 2 == 0 and k < passi - 1:
                         sfx.append([t0, "tick", 0.35])
                 sfx.append([a + 0.1 + conta, "ding", 0.7])
                 if len(parti) > 1:
-                    ev.append(f"Dialogue: 5,{T(a + 0.35)},{T(e)},Didascalia,,0,0,0,,{{\\pos(960,750)"
+                    ev.append(f"Dialogue: 5,{T(a + 0.35)},{T(e)},Didascalia,,0,0,0,,{{\\pos(960,770)"
                               f"\\fad(200,200)}}{a_capo(parti[1].upper(), 30)}")
             elif tipo == "ELENCO":
                 parti = [x.strip() for x in g["testo"].split("|")]
                 titolo, voci = (parti[0], parti[1]) if len(parti) > 1 else ("", parti[0])
                 voci = [v.strip() for v in voci.split(";") if v.strip()][:6]
                 n = len(voci)
-                h = 150 if n <= 4 else 120
-                yc = 590 if titolo else 540
+                h = 175 if n <= 4 else 138
+                yc = 600 if titolo else 540
                 y0 = yc - (n - 1) * h / 2
                 passo = min(2.2, (d - 0.9) / max(n, 1))
+                # blocco centrato sulla voce piu' lunga (icona 100 px + 40 px di spazio + testo)
+                testo_w = max(larghezza(v, 112, FONT_MXBOLD) for v in voci)
+                scala = min(1.0, 1500 / testo_w)
+                xc = (W - (140 + testo_w * scala)) / 2 + 50
+                xt = xc + 90
                 if titolo:
                     ev.append(f"Dialogue: 5,{T(a)},{T(e)},Didascalia,,0,0,0,,{{\\pos(960,{y0 - 150:.0f})"
-                              f"\\fad(150,200)}}{a_capo(titolo.upper(), 34)}")
+                              f"\\1c{col(ACCENTO)}\\fad(150,200)}}{a_capo(titolo.upper(), 34)}")
                 for i, v in enumerate(voci):
                     y, t0 = y0 + i * h, a + 0.3 + i * passo
-                    ev.append(f"Dialogue: 5,{T(t0)},{T(e)},Spunta,,0,0,0,,{{\\pos(540,{y:.0f})\\fad(0,200)"
-                              f"\\fscx40\\fscy40\\t(0,160,\\fscx100\\fscy100)}}✓")
-                    ev.append(f"Dialogue: 5,{T(t0 + 0.05)},{T(e)},Voce,,0,0,0,,{{\\move(680,{y:.0f},620,{y:.0f},0,200)"
+                    pop = "\\fad(0,200)\\fscx30\\fscy30\\t(0,180,\\fscx100\\fscy100)"
+                    forma(5, t0, e, xc, y, 100, 100, ACCENTO, pop)
+                    ev.append(f"Dialogue: 6,{T(t0)},{T(e)},Spunta,,0,0,0,,{{\\pos({xc:.0f},{y:.0f}){pop}}}✓")
+                    ev.append(f"Dialogue: 5,{T(t0 + 0.05)},{T(e)},Voce,,0,0,0,,{{\\move({xt + 70:.0f},{y:.0f},{xt:.0f},{y:.0f},0,200)\\fscx{scala * 100:.0f}\\fscy{scala * 100:.0f}"
                               f"\\fad(150,200)}}{ass_testo(v)}")
                     sfx += [[t0, "pop", 0.6], [t0 + 0.08, "ding", 0.35]]
             elif tipo == "BARRATO":
                 parti = [x.strip() for x in g["testo"].split("|")]
                 r1 = parti[0].upper()
-                w = larghezza(r1, 130)
-                x0, x1, y = 960 - w / 2 - 24, 960 + w / 2 + 24, 405   # a meta' delle maiuscole
-                ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,420)\\fs130\\fad(60,200)"
+                w = larghezza(r1, 150, FONT_MBLACK)
+                x0, x1, y = 960 - w / 2 - 28, 960 + w / 2 + 28, 410   # a meta' delle maiuscole
+                ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,410)\\fs150\\fad(60,200)"
                           f"\\fscx115\\fscy115\\t(0,180,\\fscx100\\fscy100)\\t(800,1000,\\alpha&H70&)}}{ass_testo(r1)}")
-                ev.append(f"Dialogue: 6,{T(a + 0.5)},{T(e)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c{col(ROSSO)}"
-                          f"\\clip({x0:.0f},{y - 20},{x0:.0f},{y + 30})\\t(0,300,\\clip({x0:.0f},{y - 20},{x1:.0f},{y + 30}))"
-                          f"\\fad(0,200)\\p1}}m {x0:.0f} {y} l {x1:.0f} {y} {x1:.0f} {y + 16} {x0:.0f} {y + 16}{{\\p0}}")
+                ev.append(f"Dialogue: 6,{T(a + 0.5)},{T(e)},Forma,,0,0,0,,{{\\an7\\pos(0,0)\\1c{col(ROSSO)}"
+                          f"\\clip({x0:.0f},{y - 30},{x0:.0f},{y + 30})\\t(0,300,\\clip({x0:.0f},{y - 30},{x1:.0f},{y + 30}))"
+                          f"\\fad(0,200)\\p1}}m {x0:.0f} {y - 9} l {x1:.0f} {y - 9} {x1:.0f} {y + 9} {x0:.0f} {y + 9}{{\\p0}}")
                 sfx += [[a, "pop", 0.7], [a + 0.5, "swish", 0.8]]
                 if len(parti) > 1:
-                    ev.append(f"Dialogue: 5,{T(a + 1.0)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,670)\\fs140\\1c{col(GIALLO)}"
-                              f"\\fad(80,200)\\fscx60\\fscy60\\t(0,200,\\fscx100\\fscy100)}}{a_capo(parti[1].upper(), 18)}")
+                    ev.append(f"Dialogue: 5,{T(a + 1.0)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,680)\\fs150\\1c{col(ACCENTO)}"
+                              f"\\fad(80,200)\\fscx60\\fscy60\\t(0,200,\\fscx100\\fscy100)}}{a_capo(parti[1].upper(), 16)}")
                     sfx.append([a + 1.0, "pop", 0.8])
-        elif s.get("parola"):
+        elif s.get("parola"):   # etichetta gigante su pillola verde sopra l'immagine
             t0, t1 = a + 0.2, min(e - 0.1, a + 3.4)
             if t1 - t0 > 0.6:
-                ev.append(f"Dialogue: 5,{T(t0)},{T(t1)},Parola,,0,0,0,,{{\\pos(960,330)\\fad(120,180)"
-                          f"\\fscx70\\fscy70\\t(0,180,\\fscx100\\fscy100)}}{a_capo(s['parola'].upper(), 20)}")
+                righe = a_capo(s["parola"].upper(), 20).split(r"\N")
+                w = max(larghezza(r, 108, FONT_MBLACK) for r in righe) + 110
+                h = 150 + (len(righe) - 1) * 118
+                pop = "\\fad(120,180)\\fscx70\\fscy70\\t(0,180,\\fscx100\\fscy100)"
+                forma(5, t0, t1, 960, 300, w, h, ACCENTO, pop)
+                ev.append(f"Dialogue: 6,{T(t0)},{T(t1)},Parola,,0,0,0,,{{\\pos(960,300){pop}}}{r'\N'.join(righe)}")
                 sfx.append([t0, "pop", 0.55])
     # barra di avanzamento in alto: si riempie per tutta la durata del contenuto
     rett = f"m 0 0 l {W} 0 {W} 10 0 10"
-    ev.append(f"Dialogue: 2,{ts_ass(0)},{ts_ass(totale)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c&H000000&"
+    ev.append(f"Dialogue: 2,{ts_ass(0)},{ts_ass(totale)},Forma,,0,0,0,,{{\\an7\\pos(0,0)\\1c&H000000&"
               f"\\1a&H90&\\p1}}{rett}{{\\p0}}")
-    ev.append(f"Dialogue: 3,{ts_ass(0)},{ts_ass(totale)},Barra,,0,0,0,,{{\\an7\\pos(0,0)\\1c{hexass(VERDE)}"
+    ev.append(f"Dialogue: 3,{ts_ass(0)},{ts_ass(totale)},Forma,,0,0,0,,{{\\an7\\pos(0,0)\\1c{hexass(ACCENTO)}"
               f"\\clip(0,0,0,10)\\t(0,{int(totale * 1000)},\\clip(0,0,{W},10))\\p1}}{rett}{{\\p0}}")
     (lavoro(prj) / "sfx_eventi.json").write_text(json.dumps(sorted(sfx)))
-    stili = STILI_MIX.format(B=hexass(BIANCO), S=hexass(SCURO), G=hexass(GIALLO), M=hexass(MENTA), V=hexass(VERDE))
+    stili = STILI_MIX.format(B=hexass(BIANCO), N=hexass(NERO), A=hexass(ACCENTO))
     return stili, ev, cartelli
 
 
@@ -1033,8 +1053,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Sub,Poppins,{c['sottotitoli_size']},{hexass(BIANCO)},{hexass(BIANCO)},{hexass(SCURO)},&H96000000,-1,0,0,0,100,100,0,0,1,6,3,2,160,160,{c['sottotitoli_margine']},1
-Style: Sezione,Poppins,44,{hexass(BIANCO)},{hexass(BIANCO)},{hexass(VERDE)},&H00000000,-1,0,0,0,100,100,1,0,3,16,0,7,70,70,60,1
+Style: Sub,{'Montserrat ExtraBold' if stili_mix else 'Poppins'},{c['sottotitoli_size']},{hexass(BIANCO)},{hexass(BIANCO)},{hexass(SCURO)},&H96000000,-1,0,0,0,100,100,0,0,1,6,3,2,160,160,{c['sottotitoli_margine']},1
+Style: Sezione,Poppins,44,{hexass(BIANCO)},{hexass(BIANCO)},{hexass(ACCENTO if stili_mix else VERDE)},&H00000000,-1,0,0,0,100,100,1,0,3,16,0,7,70,70,60,1
 {stili_mix}
 
 [Events]
@@ -1050,7 +1070,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             d = f["durata"] * len(b) / tot
             pop = r"{\fscx92\fscy92\t(0,110,\fscx100\fscy100)}"
             if not coperto(t + d / 2):   # sopra i cartelli a tutto schermo il sottotitolo non serve
-                ev.append(f"Dialogue: 1,{ts_ass(t)},{ts_ass(t + d - 0.02)},Sub,,0,0,0,,{pop}{evidenzia(b, kw)}")
+                ev.append(f"Dialogue: 1,{ts_ass(t)},{ts_ass(t + d - 0.02)},Sub,,0,0,0,,{pop}{evidenzia(b, kw, ACCENTO, True) if stili_mix else evidenzia(b, kw)}")
             t += d
     # etichetta della sezione in alto a sinistra (barra verde del brand)
     sezioni = {}
@@ -1177,6 +1197,9 @@ def cmd_monta(prj):
     ff(*inp, "-filter_complex_script", script, "-map", "[v]", "-c:v", "libx264", "-preset", "medium",
        "-crf", "16", "-r", FPS, contenuto_v)
     totale = T + c["durata_finale"]
+    if durata(contenuto_v) < totale - 1.0:   # una scena troppo corta interrompe le transizioni: meglio fermarsi
+        raise SystemExit(f"Montaggio troncato: {durata(contenuto_v):.1f} s di immagini su {totale:.1f} s di voce. "
+                         "Controlla le inquadrature in lavoro/inquadrature/ (durate nel nome del file).")
     # 3) traccia voce con le pause
     vd = lavoro(prj, "voce")
     lista = vd / "lista.txt"
