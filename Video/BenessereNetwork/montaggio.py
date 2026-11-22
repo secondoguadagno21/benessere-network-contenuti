@@ -9,6 +9,7 @@ Uso (dalla cartella Video/BenessereNetwork):
   python montaggio.py voce|visual|monta|controllo|miniatura|testi PROGETTO   -> singoli passaggi
   python montaggio.py escludi PROGETTO ID [ID...]  -> scarta clip/foto Pexels e rifai visual+monta
   python montaggio.py ia PROGETTO             -> stile mix: elenco delle immagini IA da generare (immagini/ia_N.jpg)
+  python montaggio.py audio PROGETTO          -> voce + audio_per_srt_*.mp3 (sola voce, tempi del montaggio) per l'SRT
 
 Stile "mix" ("stile": "mix" in progetto.json): clip, foto, immagini IA e cartelli animati con effetti sonori.
 Nel copione, dopo le parole chiave Pexels, ogni frase puo' avere grafiche separate da "||":
@@ -942,13 +943,41 @@ def pillola(w, h):
             f"b {r - k:.0f} {y1:.0f} 0 {cy + k:.0f} 0 {cy:.0f} b 0 {cy - k:.0f} {r - k:.0f} 0 {r:.0f} 0")
 
 
+EMOJI_FONT = Path("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf")
+RE_EMOJI = re.compile("^([\U0001F000-\U0001FAFF\u2190-\u21FF\u2300-\u23FF\u2460-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+)\\s*(.*)$")
+
+
+def separa_emoji(testo):
+    """'❄️ PELLE CHE TIRA?' -> ('❄️', 'PELLE CHE TIRA?'). Le emoji a colori le disegna Pillow, non i sottotitoli."""
+    m = RE_EMOJI.match(testo.strip())
+    return (m.group(1), m.group(2)) if m and m.group(2) else ("", testo.strip())
+
+
+def png_emoji(prj, emo, lato):
+    out = lavoro(prj, "emoji") / f"{'-'.join(f'{ord(c):x}' for c in emo)}_{lato}.png"
+    if out.exists() or not EMOJI_FONT.exists():
+        return out if out.exists() else None
+    font = ImageFont.truetype(str(EMOJI_FONT), 109)
+    img = Image.new("RGBA", (160 * max(1, len(emo)), 160), (0, 0, 0, 0))
+    ImageDraw.Draw(img).text((10, 10), emo, font=font, embedded_color=True)
+    img = img.crop(img.getbbox())
+    r = lato / max(img.size)
+    img.resize((max(1, int(img.width * r)), max(1, int(img.height * r))), Image.LANCZOS).save(out)
+    return out
+
+
 def eventi_mix(prj, totale):
     """Grafiche dello stile mix sopra le inquadrature: cartelli (capitolo, titolo, numero, elenco, barrato),
     parole giganti su pillola verde, barra di avanzamento. Restituisce eventi ASS, intervalli dei cartelli
     ed effetti sonori."""
     timeline = json.loads((lavoro(prj) / "timeline.json").read_text())
-    ev, cartelli, sfx = [], [], []
+    ev, cartelli, sfx, emoji = [], [], [], []
     col, T = hexass, ts_ass
+
+    def metti_emoji(emo, t0, t1, x, y, lato):   # emoji a colori come immagine, centrata in (x, y)
+        if emo:
+            emoji.append({"emoji": emo, "inizio": round(t0, 3), "fine": round(t1, 3), "x": round(x), "y": round(y),
+                          "lato": lato})
     forma = lambda layer, t0, t1, x, y, w, h, colore, fx="": ev.append(
         f"Dialogue: {layer},{T(t0)},{T(t1)},Forma,,0,0,0,,{{\\an5\\pos({x:.0f},{y:.0f})\\1c{col(colore)}{fx}\\p1}}"
         f"{pillola(w, h)}{{\\p0}}")
@@ -973,7 +1002,10 @@ def eventi_mix(prj, totale):
                           f"\\fad(150,200)}}{a_capo(g['titolo'], 22)}")
                 sfx += [[a, "whoosh", 0.9], [a + 0.12, "pop", 0.6]]
             elif tipo == "TITOLO":
-                txt = a_capo(g["testo"].upper(), 12)
+                emo, testo = separa_emoji(g["testo"])
+                txt = a_capo(testo.upper(), 12)
+                righe_t = txt.count(r"\N") + 1
+                metti_emoji(emo, a + 0.1, e, 960, 540 - righe_t * 100 - 110, 190)
                 ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,540)\\fad(60,200)"
                           f"\\fscx122\\fscy122\\t(0,200,\\fscx100\\fscy100)}}{txt}")
                 for t0, t1 in ((a, a + 0.16), (a + 0.55, a + 0.62)):   # piccolo "glitch" verde
@@ -1015,6 +1047,10 @@ def eventi_mix(prj, totale):
                 scala = min(1.0, 1500 / testo_w)
                 xc = (W - (140 + testo_w * scala)) / 2 + 50
                 xt = xc + 90
+                emo, titolo = separa_emoji(titolo)
+                if emo:
+                    tw = larghezza(titolo.upper(), 86, FONT_MXBOLD)
+                    metti_emoji(emo, a + 0.1, e, 960 - tw / 2 - 70, y0 - 150, 90)
                 if titolo:
                     ev.append(f"Dialogue: 5,{T(a)},{T(e)},Didascalia,,0,0,0,,{{\\pos(960,{y0 - 150:.0f})"
                               f"\\1c{col(ACCENTO)}\\fad(150,200)}}{a_capo(titolo.upper(), 34)}")
@@ -1028,7 +1064,7 @@ def eventi_mix(prj, totale):
                     sfx += [[t0, "pop", 0.6], [t0 + 0.08, "ding", 0.35]]
             elif tipo == "BARRATO":
                 parti = [x.strip() for x in g["testo"].split("|")]
-                r1 = parti[0].upper()
+                r1 = separa_emoji(parti[0])[1].upper()
                 w = larghezza(r1, 150, FONT_MBLACK)
                 x0, x1, y = 960 - w / 2 - 28, 960 + w / 2 + 28, 410   # a meta' delle maiuscole
                 ev.append(f"Dialogue: 5,{T(a)},{T(e)},Titolo,,0,0,0,,{{\\pos(960,410)\\fs150\\fad(60,200)"
@@ -1044,11 +1080,13 @@ def eventi_mix(prj, totale):
         elif s.get("parola"):   # etichetta gigante su pillola verde sopra l'immagine
             t0, t1 = a + 0.2, min(e - 0.1, a + 3.4)
             if t1 - t0 > 0.6:
-                righe = a_capo(s["parola"].upper(), 20).split(r"\N")
+                emo, parola = separa_emoji(s["parola"])
+                righe = a_capo(parola.upper(), 20).split(r"\N")
                 w = max(larghezza(r, 108, FONT_MBLACK) for r in righe) + 110
                 h = 150 + (len(righe) - 1) * 118
                 pop = "\\fad(120,180)\\fscx70\\fscy70\\t(0,180,\\fscx100\\fscy100)"
                 forma(5, t0, t1, 960, 300, w, h, ACCENTO, pop)
+                metti_emoji(emo, t0 + 0.1, t1, 960 - w / 2 - 75, 300, 120)
                 ev.append(f"Dialogue: 6,{T(t0)},{T(t1)},Parola,,0,0,0,,{{\\pos(960,300){pop}}}{r'\N'.join(righe)}")
                 sfx.append([t0, "pop", 0.55])
     # barra di avanzamento in alto: si riempie per tutta la durata del contenuto
@@ -1058,6 +1096,7 @@ def eventi_mix(prj, totale):
     ev.append(f"Dialogue: 3,{ts_ass(0)},{ts_ass(totale)},Forma,,0,0,0,,{{\\an7\\pos(0,0)\\1c{hexass(ACCENTO)}"
               f"\\clip(0,0,0,10)\\t(0,{int(totale * 1000)},\\clip(0,0,{W},10))\\p1}}{rett}{{\\p0}}")
     (lavoro(prj) / "sfx_eventi.json").write_text(json.dumps(sorted(sfx)))
+    (lavoro(prj) / "emoji_eventi.json").write_text(json.dumps(emoji, ensure_ascii=False))
     stili = STILI_MIX.format(B=hexass(BIANCO), N=hexass(NERO), A=hexass(ACCENTO))
     return stili, ev, cartelli
 
@@ -1065,8 +1104,11 @@ def eventi_mix(prj, totale):
 def leggi_srt(prj, path):
     """SRT con i tempi del video FINALE (gancio + intro + resto) -> blocchi sui tempi del contenuto senza intro.
     Usa lavoro/info.json del montaggio precedente (inizio e durata dell'intro)."""
-    info = json.loads((lavoro(prj) / "info.json").read_text())
-    gi, di = info["inizio_intro"], info["durata_intro"]
+    if progetto(prj).get("srt_base") == "voce":   # SRT fatto sull'audio di sola voce (comando audio)
+        gi, di = 1e9, 0.0
+    else:
+        info = json.loads((lavoro(prj) / "info.json").read_text())
+        gi, di = info["inizio_intro"], info["durata_intro"]
     sec = lambda x: (lambda h, m, rest: int(h) * 3600 + int(m) * 60 + float(rest.replace(",", ".")))(*x.split(":"))
     blocchi = []
     for blocco in re.split(r"\n\s*\n", path.read_text(encoding="utf-8").strip()):
@@ -1219,6 +1261,24 @@ def traccia_sfx(prj, totale):
     return out
 
 
+def cmd_audio(prj):
+    """Audio per l'SRT (regola di David): solo la voce, con le stesse pause del montaggio, senza intro e senza
+    musica. David lo trascrive e rimanda l'SRT; in progetto.json "sottotitoli_srt" + "srt_base": "voce"."""
+    frasi = frasi_con_tempi(prj)
+    totale = frasi[-1]["inizio"] + frasi[-1]["scena"]
+    vd = lavoro(prj, "voce")
+    righe = []
+    for f in frasi:
+        pad = vd / f"{f['n']:03d}_pad.wav"
+        ff("-i", vd / f"{f['n']:03d}.wav", "-af", f"apad=whole_dur={f['scena']:.3f}", "-ar", "48000", "-ac", "1", pad)
+        righe.append(f"file '{pad.name}'")
+    (vd / "lista.txt").write_text("\n".join(righe))
+    out = prj / f"audio_per_srt_{prj.name}.mp3"
+    ff("-f", "concat", "-safe", "0", "-i", vd / "lista.txt", "-af", f"apad=whole_dur={totale:.3f}",
+       "-ar", "48000", "-ac", "1", "-b:a", "128k", out)
+    print(f"Audio per l'SRT: {out} ({totale:.1f} s)")
+
+
 def cmd_monta(prj):
     c, p = cfgp(prj), progetto(prj)
     frasi = frasi_con_tempi(prj)
@@ -1249,6 +1309,17 @@ def cmd_monta(prj):
         prev = f"x{i}"
     fontsdir = str(FONT_DIR).replace("\\", "/").replace(":", "\\:")
     assp = str(ass).replace("\\", "/").replace(":", "\\:")
+    ev_emoji = json.loads((lavoro(prj) / "emoji_eventi.json").read_text()) \
+        if mix_attivo(prj) and (lavoro(prj) / "emoji_eventi.json").exists() else []
+    for k, em in enumerate(ev_emoji):
+        png = png_emoji(prj, em["emoji"], em["lato"])
+        if not png:
+            continue
+        pp = str(png).replace("\\", "/").replace(":", "\\:")
+        fc.append(f"movie='{pp}',format=rgba[em{k}]")
+        fc.append(f"[{prev}][em{k}]overlay=x={em['x']}-w/2:y={em['y']}-h/2:"
+                  f"enable='between(t,{em['inizio']},{em['fine']})'[eo{k}]")
+        prev = f"eo{k}"
     fc.append(f"[{prev}]ass='{assp}':fontsdir='{fontsdir}',format=yuv420p[v]")
     script = lavoro(prj) / "xfade.txt"
     script.write_text(";\n".join(fc))
@@ -1568,7 +1639,8 @@ def main():
         return
     passi = {"ia": [cmd_ia], "voci": [cmd_voci], "voce": [cmd_voce], "visual": [cmd_visual], "monta": [cmd_monta],
              "controllo": [cmd_controllo], "miniatura": [cmd_miniatura], "testi": [cmd_testi],
-             "tutto": [cmd_voce, cmd_visual, cmd_monta, cmd_controllo, cmd_miniatura, cmd_testi]}
+             "tutto": [cmd_voce, cmd_visual, cmd_monta, cmd_controllo, cmd_miniatura, cmd_testi],
+             "audio": [cmd_voce, cmd_audio]}
     if cmd not in passi:
         raise SystemExit(__doc__)
     for fn in passi[cmd]:

@@ -25,8 +25,8 @@
   "sottotitoli_caratteri": 26,
   "musica_volume": 0.18,
   "lufs": -14,
-  "tts_frasi_per_richiesta": 5,
-  "tts_parole_per_richiesta": 75,
+  "tts_frasi_per_richiesta": 7,
+  "tts_parole_per_richiesta": 110,
   "musica_sovrapposizione": 4.0,
   "mix": {
     "dissolvenza": 0.12,
